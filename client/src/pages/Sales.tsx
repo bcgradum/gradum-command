@@ -536,7 +536,11 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
 
   const { data: bookings = [], isLoading } = useQuery<Booking[]>({
     queryKey: ["/api/bookings", locationFilter],
-    queryFn: () => apiRequest("GET", `/api/bookings${locationFilter ? `?location=${encodeURIComponent(locationFilter)}` : ""}`),
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/bookings${locationFilter ? `?location=${encodeURIComponent(locationFilter)}` : ""}`);
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
   });
 
   const refresh = useCallback(() => qc.invalidateQueries({ queryKey: ["/api/bookings"] }), [qc]);
@@ -679,7 +683,11 @@ function FollowUpsTab() {
 
   const { data: followups = [], isLoading } = useQuery<Followup[]>({
     queryKey: ["/api/followups", locationFilter],
-    queryFn: () => apiRequest("GET", `/api/followups${locationFilter ? `?location=${encodeURIComponent(locationFilter)}` : ""}`),
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/followups${locationFilter ? `?location=${encodeURIComponent(locationFilter)}` : ""}`);
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
   });
 
   const refresh = useCallback(() => qc.invalidateQueries({ queryKey: ["/api/followups"] }), [qc]);
@@ -871,7 +879,10 @@ function DashboardTab() {
 
   const { data: stats, isLoading } = useQuery<SalesStats>({
     queryKey: ["/api/sales/stats", period],
-    queryFn: () => apiRequest("GET", `/api/sales/stats?period=${period}`),
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/sales/stats?period=${period}`);
+      return res.json();
+    },
   });
 
   const periods: { key: "day" | "week" | "month" | "all"; label: string }[] = [
