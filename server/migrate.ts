@@ -132,5 +132,40 @@ export function runMigrations() {
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
 
+  db.run(sql`CREATE TABLE IF NOT EXISTS bookings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    location TEXT NOT NULL,
+    date_booked TEXT,
+    eval_date TEXT,
+    eval_time TEXT,
+    lead_name TEXT NOT NULL,
+    ig_handle TEXT,
+    phone TEXT,
+    assigned_rep TEXT,
+    show_status TEXT,
+    close_status TEXT,
+    revenue REAL,
+    reschedule_date TEXT,
+    reschedule_time TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+
+  db.run(sql`CREATE TABLE IF NOT EXISTS followups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    location TEXT NOT NULL,
+    date TEXT,
+    ig_username TEXT,
+    assigned_rep TEXT,
+    notes TEXT,
+    status TEXT DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+
+  // Add handle_status column to athletes if it doesn't exist
+  try {
+    db.run(sql`ALTER TABLE athletes ADD COLUMN handle_status TEXT`);
+  } catch (e) { /* column already exists */ }
+
   console.log("Migrations complete.");
 }
