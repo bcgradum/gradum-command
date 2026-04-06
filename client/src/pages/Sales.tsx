@@ -110,15 +110,33 @@ function labelStyle(): React.CSSProperties {
   };
 }
 
-function ShowBadge({ status }: { status?: string | null }) {
-  if (!status) return <span style={{ color: S.textDim, fontFamily: S.mono, fontSize: 12 }}>—</span>;
+function ShowBadge({ status, evalDate, computedStatus }: { status?: string | null; evalDate?: string | null; computedStatus?: string | null }) {
+  // Determine display status
+  const today = new Date().toISOString().split('T')[0];
+  let displayStatus = status;
+  if (!status) {
+    // Check computed status from notes field or derive from date
+    if (computedStatus === 'tba') {
+      displayStatus = 'tba';
+    } else if (computedStatus === 'pending') {
+      displayStatus = 'pending';
+    } else if (evalDate) {
+      const evalDateStr = evalDate.replace(/(\/)/g, '-');
+      displayStatus = evalDate > today ? 'tba' : 'pending';
+    } else {
+      displayStatus = 'pending';
+    }
+  }
+  if (!displayStatus) return <span style={{ color: S.textDim, fontFamily: S.mono, fontSize: 12 }}>—</span>;
   const map: Record<string, { label: string; color: string; bg: string }> = {
     show: { label: "Show", color: S.green, bg: "rgba(44,186,110,0.12)" },
     no_show: { label: "No Show", color: S.red, bg: "rgba(244,92,107,0.12)" },
     reschedule: { label: "Reschedule", color: S.amber, bg: "rgba(245,158,11,0.12)" },
     cancel: { label: "Cancel", color: "hsl(210,10%,50%)", bg: "rgba(100,100,120,0.15)" },
+    tba: { label: "TBA", color: "#33d4e0", bg: "rgba(51,212,224,0.10)" },
+    pending: { label: "Pending", color: "#f5a623", bg: "rgba(245,166,35,0.10)" },
   };
-  const cfg = map[status] || { label: status, color: S.textMuted, bg: S.cyanDim };
+  const cfg = map[displayStatus] || { label: displayStatus, color: S.textMuted, bg: S.cyanDim };
   return (
     <span style={{
       display: "inline-block", padding: "2px 7px", borderRadius: 4,
@@ -634,7 +652,7 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
                   <td style={{ ...tdStyle, color: S.textMuted }}>{b.assignedRep || "—"}</td>
                   <td style={monoTd}>{b.evalDate}</td>
                   <td style={{ ...monoTd, color: S.textMuted }}>{b.evalTime}</td>
-                  {isAdmin && <td style={tdStyle}><ShowBadge status={b.showStatus} /></td>}
+                  {isAdmin && <td style={tdStyle}><ShowBadge status={b.showStatus} evalDate={b.evalDate} computedStatus={b.notes} /></td>}
                   {isAdmin && <td style={tdStyle}><CloseBadge status={b.closeStatus} /></td>}
                   {isAdmin && (
                     <td style={{ ...monoTd, textAlign: "right", color: b.revenue ? S.green : S.textDim }}>

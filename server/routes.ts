@@ -434,6 +434,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return true; // all
       });
 
+      // Helper: determine display status
+      const todayStr = new Date().toISOString().split("T")[0];
+      const getDisplayStatus = (b: any) => {
+        if (b.showStatus) return b.showStatus;
+        const notes = b.notes || b.computedStatus || "";
+        if (notes === "tba") return "tba";
+        if (notes === "pending") return "pending";
+        // Derive from date
+        const evalDate = b.evalDate || b.dateBooked || "";
+        if (evalDate) {
+          const parts = evalDate.split("/");
+          if (parts.length === 3) {
+            const iso = `${parts[2]}-${parts[0].padStart(2,"0")}-${parts[1].padStart(2,"0")}`;
+            return iso > todayStr ? "tba" : "pending";
+          }
+        }
+        return "pending";
+      };
+
       // Aggregate totals
       const total_booked = filtered.length;
       const shows = filtered.filter((b: any) => b.showStatus === "show").length;
@@ -442,13 +461,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const reschedules = filtered.filter((b: any) => b.showStatus === "reschedule").length;
       const cancels = filtered.filter((b: any) => b.showStatus === "cancel" || b.showStatus === "no_show").length;
       const revenue = filtered.reduce((sum: number, b: any) => sum + (b.revenue || 0), 0);
+      const tba = filtered.filter((b: any) => getDisplayStatus(b) === "tba").length;
+      const pending = filtered.filter((b: any) => getDisplayStatus(b) === "pending").length;
 
       // By location
       const locationMap: Record<string, any> = {};
       filtered.forEach((b: any) => {
         const loc = b.location || "Unknown";
         if (!locationMap[loc]) {
-          locationMap[loc] = { location: loc, booked: 0, shows: 0, closes: 0, no_sales: 0, reschedules: 0, cancels: 0, revenue: 0 };
+          locationMap[loc] = { location: loc, booked: 0, shows: 0, closes: 0, no_sales: 0, reschedules: 0, cancels: 0, revenue: 0, tba: 0, pending: 0 };
         }
         locationMap[loc].booked++;
         if (b.showStatus === "show") locationMap[loc].shows++;
@@ -457,11 +478,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (b.showStatus === "reschedule") locationMap[loc].reschedules++;
         if (b.showStatus === "cancel" || b.showStatus === "no_show") locationMap[loc].cancels++;
         locationMap[loc].revenue += b.revenue || 0;
+        const ds = getDisplayStatus(b);
+        if (ds === "tba") locationMap[loc].tba++;
+        if (ds === "pending") locationMap[loc].pending++;
       });
 
       const by_location = Object.values(locationMap).sort((a: any, b: any) => b.revenue - a.revenue);
 
-      res.json({ total_booked, shows, closes, no_sales, reschedules, cancels, revenue, by_location });
+      res.json({ total_booked, shows, closes, no_sales, reschedules, cancels, revenue, tba, pending, by_location });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
