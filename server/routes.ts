@@ -116,14 +116,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.patch("/api/athletes/:id/ig", async (req, res) => {
+    const id = Number(req.params.id);
+    const { handleStatus, ...rest } = req.body;
     try {
-      await sbAthletes.update(Number(req.params.id), req.body);
-      res.json({ id: Number(req.params.id), ...req.body });
-    } catch {
-      const updated = storage.updateAthleteIg(Number(req.params.id), req.body);
-      if (!updated) return res.status(404).json({ error: "Not found" });
-      res.json(updated);
-    }
+      // Map camelCase to snake_case for Supabase if needed
+      const update: any = { ...rest };
+      if (handleStatus !== undefined) update.handle_status = handleStatus;
+      await sbAthletes.update(id, update);
+    } catch { /* fallback to SQLite */ }
+    // Always update SQLite
+    const sqliteUpdate: any = { ...rest };
+    if (handleStatus !== undefined) (sqliteUpdate as any).handleStatus = handleStatus;
+    const updated = storage.updateAthleteIg(id, sqliteUpdate);
+    res.json(updated || { id, ...req.body });
   });
 
   // ─── ACTIVITY LOG ───────────────────────────────────────────────────────────────────────────────────

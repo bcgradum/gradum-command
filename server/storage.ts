@@ -134,7 +134,7 @@ export class Storage implements IStorage {
     const result = db.select({ count: count() }).from(athletes)
       .where(and(
         sql`${athletes.id} IN (${sql.join(fa.map(id => sql`${id}`), sql`, `)})`,
-        sql`${athletes.igConfidence} >= 60`
+        sql`${athletes.igHandle} IS NOT NULL`
       )).get();
     return result?.count ?? 0;
   }
@@ -256,7 +256,7 @@ export class Storage implements IStorage {
     }
 
     const inClause = sql`${athletes.id} IN (${sql.join(athleteIds.map(id => sql`${id}`), sql`, `)})`;
-    const matched = db.select({ count: count() }).from(athletes).where(and(inClause, sql`${athletes.igConfidence} >= 60`)).get()?.count ?? 0;
+    const matched = db.select({ count: count() }).from(athletes).where(and(inClause, sql`${athletes.igHandle} IS NOT NULL`)).get()?.count ?? 0;
     const lowConf = db.select({ count: count() }).from(athletes).where(and(inClause, sql`${athletes.igConfidence} >= 50`, sql`${athletes.igConfidence} < 60`)).get()?.count ?? 0;
     const review = db.select({ count: count() }).from(athletes).where(and(inClause, eq(athletes.igStatus, "review"))).get()?.count ?? 0;
     const notFound = db.select({ count: count() }).from(athletes).where(and(inClause, eq(athletes.igStatus, "not_found"))).get()?.count ?? 0;

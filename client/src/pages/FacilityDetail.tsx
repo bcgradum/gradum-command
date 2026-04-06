@@ -28,8 +28,16 @@ function ConfidenceBadge({ score }: { score: number | null }) {
   return <span className="tabular text-xs font-bold" style={{ color }}>{score}</span>;
 }
 
-function AthleteRow({ athlete, onPromote }: { athlete: Athlete; onPromote: (id: number) => void }) {
+function AthleteRow({ athlete, onPromote, onHandleStatus }: { athlete: Athlete; onPromote: (id: number) => void; onHandleStatus: (id: number, status: string) => void }) {
   const status = IG_STATUS_LABELS[athlete.igStatus] ?? { label: athlete.igStatus, color: "#6b7280", bg: "transparent" };
+  const handleStatus = (athlete as any).handleStatus;
+  
+  const handleStatusColors: Record<string, { color: string; bg: string }> = {
+    confirmed: { color: "#4caf7d", bg: "rgba(76,175,125,0.12)" },
+    wrong:     { color: "#f45c6b", bg: "rgba(244,92,107,0.12)" },
+  };
+  const hsStyle = handleStatus ? handleStatusColors[handleStatus] : null;
+
   return (
     <tr data-testid={`row-athlete-${athlete.id}`} style={{ borderBottom: "1px solid hsl(222, 15%, 16%)" }}
       className="hover:bg-white/[0.02] transition-colors">
@@ -44,9 +52,19 @@ function AthleteRow({ athlete, onPromote }: { athlete: Athlete; onPromote: (id: 
           {athlete.sport}
         </span>
       </td>
+      {/* IG Handle — clickable link */}
       <td className="py-2.5 px-3">
         {athlete.igHandle ? (
-          <span className="text-xs font-mono" style={{ color: "var(--color-cyan)" }}>@{athlete.igHandle}</span>
+          <a
+            href={`https://www.instagram.com/${athlete.igHandle}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-mono hover:underline"
+            style={{ color: "var(--color-cyan)", textDecoration: "none" }}
+            data-testid={`link-ig-${athlete.id}`}
+          >
+            @{athlete.igHandle}
+          </a>
         ) : (
           <span style={{ color: "hsl(210, 10%, 35%)" }}>—</span>
         )}
@@ -57,15 +75,25 @@ function AthleteRow({ athlete, onPromote }: { athlete: Athlete; onPromote: (id: 
           {status.label}
         </span>
       </td>
+      {/* Wrong / Done dropdown */}
       <td className="py-2.5 px-3">
-        {(athlete.igStatus === "low_confidence" || athlete.igStatus === "review") && (
-          <button onClick={() => onPromote(athlete.id)}
-            className="text-xs px-2 py-0.5 rounded transition-colors"
-            style={{ background: "var(--color-cyan-dim)", color: "var(--color-cyan)", border: "1px solid var(--color-cyan-border)" }}
-            data-testid={`button-promote-${athlete.id}`}>
-            Promote
-          </button>
-        )}
+        <select
+          value={handleStatus || ""}
+          onChange={e => onHandleStatus(athlete.id, e.target.value)}
+          className="text-xs rounded px-1.5 py-0.5"
+          style={{
+            background: hsStyle ? hsStyle.bg : "hsl(222, 15%, 16%)",
+            color: hsStyle ? hsStyle.color : "hsl(210, 10%, 45%)",
+            border: `1px solid ${hsStyle ? hsStyle.color + "40" : "hsl(222, 15%, 22%)"}`,
+            cursor: "pointer",
+            outline: "none",
+          }}
+          data-testid={`select-handle-status-${athlete.id}`}
+        >
+          <option value="">— Status —</option>
+          <option value="confirmed">✓ Done</option>
+          <option value="wrong">✗ Wrong</option>
+        </select>
       </td>
     </tr>
   );
@@ -110,6 +138,12 @@ export default function FacilityDetail() {
   const promoteMutation = useMutation({
     mutationFn: async (id: number) => apiRequest("PATCH", `/api/athletes/${id}/ig`, { igStatus: "matched", igConfidence: 65 }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/facilities", facilityId] }); },
+  });
+
+  const handleStatusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) =>
+      apiRequest("PATCH", `/api/athletes/${id}/ig`, { handleStatus: status || null }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/facilities", facilityId, "athletes"] }); },
   });
 
   const stateColors: Record<string, string> = { FL: "#3498db", TX: "#f5a623", NC: "#4caf7d", SC: "#9b59b6", GA: "#e74c3c", OK: "#e67e22", UT: "#1abc9c" };
@@ -218,7 +252,7 @@ export default function FacilityDetail() {
               <table className="w-full">
                 <thead style={{ position: "sticky", top: 0, zIndex: 1, background: "hsl(222, 20%, 8%)" }}>
                   <tr style={{ borderBottom: "1px solid hsl(222, 15%, 18%)" }}>
-                    {["Athlete", "Year", "Pos", "Sport", "IG Handle", "Score", "Status", "Action"].map(h => (
+                    {["Athlete", "Year", "Pos", "Sport", "IG Handle", "Score", "IG Status", "Done / Wrong"].map(h => (
                       <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: "hsl(210, 10%, 40%)" }}>{h}</th>
                     ))}
                   </tr>
@@ -232,7 +266,7 @@ export default function FacilityDetail() {
                     </tr>
                   ) : (
                     athletes.map(a => (
-                      <AthleteRow key={a.id} athlete={a} onPromote={id => promoteMutation.mutate(id)} />
+                      <AthleteRow key={a.id} athlete={a} onPromote={id => promoteMutation.mutate(id)} onHandleStatus={(id, status) => handleStatusMutation.mutate({ id, status })} />
                     ))
                   )}
                 </tbody>

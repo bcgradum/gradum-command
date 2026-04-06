@@ -552,6 +552,7 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
   const [showNewModal, setShowNewModal] = useState(false);
   const [outcomeBooking, setOutcomeBooking] = useState<Booking | null>(null);
   const [locationFilter, setLocationFilter] = useState("");
+  const [noSaleOnly, setNoSaleOnly] = useState(false);
 
   const { data: bookings = [], isLoading } = useQuery<Booking[]>({
     queryKey: ["/api/bookings", locationFilter],
@@ -598,8 +599,26 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
           <option value="">All Locations</option>
           {FACILITIES.map(f => <option key={f} value={f}>{f}</option>)}
         </select>
+        {/* No Sale Follow-Up quick filter */}
+        <button
+          onClick={() => setNoSaleOnly(!noSaleOnly)}
+          style={{
+            background: noSaleOnly ? "rgba(249,115,22,0.15)" : S.surface,
+            color: noSaleOnly ? S.orange : S.textMuted,
+            border: `1px solid ${noSaleOnly ? S.orange : S.border}`,
+            borderRadius: 8, padding: "7px 14px", fontSize: 12,
+            cursor: "pointer", fontWeight: noSaleOnly ? 700 : 400,
+            display: "flex", alignItems: "center", gap: 6,
+          }}
+          data-testid="button-no-sale-filter"
+        >
+          {noSaleOnly ? "✕" : ""} No Sale Follow-Ups
+          {noSaleOnly && <span style={{ fontSize: 10 }}>({bookings.filter(b => b.closeStatus === "no_sale").length})</span>}
+        </button>
         <div style={{ marginLeft: "auto", color: S.textMuted, fontSize: 12 }}>
-          {bookings.length} bookings
+          {noSaleOnly
+            ? `${bookings.filter(b => b.closeStatus === "no_sale").length} no-sale leads`
+            : `${bookings.length} bookings`}
         </div>
       </div>
 
@@ -637,7 +656,7 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
                   </td>
                 </tr>
               )}
-              {bookings.map(b => (
+              {(noSaleOnly ? bookings.filter(b => b.closeStatus === "no_sale") : bookings).map(b => (
                 <tr
                   key={b.id}
                   style={{ background: S.bg, transition: "background 0.1s" }}
