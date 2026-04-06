@@ -258,14 +258,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       res.json(await sbBookings.getAll(location));
     } catch {
-      // SQLite fallback
-      const { db } = await import("./db");
-      const { sql: drizzleSql } = await import("drizzle-orm");
-      let query = "SELECT * FROM bookings";
-      const params: any[] = [];
-      if (location) { query += " WHERE location = ?"; params.push(location); }
-      query += " ORDER BY created_at DESC";
-      const rows = db.all(drizzleSql.raw(query)) as any[];
+      // SQLite fallback — use raw sqlite3 for proper parameterized queries
+      const Database = (await import("better-sqlite3")).default;
+      const path = (await import("path")).default;
+      const sqliteDb = new Database(path.join(process.cwd(), "gradum.db"));
+      const stmt = location
+        ? sqliteDb.prepare("SELECT * FROM bookings WHERE location = ? ORDER BY date_booked DESC")
+        : sqliteDb.prepare("SELECT * FROM bookings ORDER BY date_booked DESC");
+      const rows = (location ? stmt.all(location) : stmt.all()) as any[];
+      sqliteDb.close();
       res.json(rows.map((b: any) => ({
         id: b.id, location: b.location, dateBooked: b.date_booked,
         evalDate: b.eval_date, evalTime: b.eval_time, leadName: b.lead_name,
@@ -279,8 +280,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/bookings", async (req, res) => {
     const { location, dateBooked, evalDate, evalTime, leadName, igHandle, phone, assignedRep, notes } = req.body;
-    if (!location || !leadName || !evalDate || !evalTime) {
-      return res.status(400).json({ error: "Missing required fields: location, leadName, evalDate, evalTime" });
+    if (!location || !leadName) {
+      return res.status(400).json({ error: "Missing required fields: location, leadName" });
     }
     const now = new Date().toISOString();
     const data = {
@@ -412,24 +413,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // SQLite fallback
         const { db } = await import("./db");
         const { sql: drizzleSql } = await import("drizzle-orm");
-        const rows = db.all(drizzleSql.raw("SELECT * FROM bookings ORDER BY created_at DESC")) as any[];
-        allBookings = rows.map((b: any) => ({
+        const Database2 = (await import("better-sqlite3")).default;
+        const path2 = (await import("path")).default;
+        const sqliteDb2 = new Database2(path2.join(process.cwd(), "gradum.db"));
+        const rawRows = sqliteDb2.prepare("SELECT * FROM bookings ORDER BY date_booked DESC").all() as any[];
+        sqliteDb2.close();
+        allBookings = rawRows.map((b: any) => ({
           id: b.id, location: b.location, dateBooked: b.date_booked,
-          showStatus: b.show_status, closeStatus: b.close_status, revenue: b.revenue,
-          createdAt: b.created_at,
+          evalDate: b.eval_date, showStatus: b.show_status, closeStatus: b.close_status,
+          revenue: b.revenue, notes: b.notes, createdAt: b.created_at,
         }));
       }
 
-      // Period filter
+      // Period filter — use dateBooked (actual eval date) not createdAt
       const now = new Date();
+      const nowStr = now.toISOString().split("T")[0];
       const filtered = allBookings.filter((b: any) => {
-        const created = new Date(b.createdAt || b.dateBooked || now);
+        const rawDate = b.dateBooked || b.date_booked || "";
+        if (!rawDate) return period === "all"; // no date = only show in all-time
+        // Parse M/D/YYYY format
+        let bookingDate: Date;
+        try {
+          const parts = rawDate.split("/");
+          if (parts.length === 3) {
+            bookingDate = new Date(`${parts[2]}-${parts[0].padStart(2,"0")}-${parts[1].padStart(2,"0")}`);
+          } else {
+            bookingDate = new Date(rawDate);
+          }
+          if (isNaN(bookingDate.getTime())) return period === "all";
+        } catch { return period === "all"; }
         if (period === "day") {
-          return created.toDateString() === now.toDateString();
+          return bookingDate.toDateString() === now.toDateString();
         } else if (period === "week") {
-          return (now.getTime() - created.getTime()) <= 7 * 24 * 60 * 60 * 1000;
+          return (now.getTime() - bookingDate.getTime()) <= 7 * 24 * 60 * 60 * 1000;
         } else if (period === "month") {
-          return (now.getTime() - created.getTime()) <= 30 * 24 * 60 * 60 * 1000;
+          return (now.getTime() - bookingDate.getTime()) <= 30 * 24 * 60 * 60 * 1000;
         }
         return true; // all
       });

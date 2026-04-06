@@ -6,11 +6,12 @@ import Sidebar from "@/components/command/Sidebar";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
+// Matches exact location names stored in the bookings database
 const FACILITIES = [
   "Austin", "Broward", "Carrollton", "Cary", "Charleston", "Charlotte",
   "Fort Myers", "Fort Worth", "Frisco", "Houston", "Jacksonville", "Jupiter",
-  "Nocatee", "Orlando", "Port St. Lucie", "South Charlotte", "South Miami",
-  "Spring", "Tampa", "Wake Forest", "Wesley Chapel",
+  "Nocatee", "Port Saint Lucie", "South Charlotte", "South Miami",
+  "Spring", "Tampa", "Wake Forest", "Wesley Chapel", "Winter Garden",
 ];
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
