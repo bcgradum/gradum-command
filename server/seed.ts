@@ -51,7 +51,11 @@ const SAMPLE_ATHLETES = [
 
 export async function seedDatabase() {
   const existing = db.select({ count: count() }).from(facilities).get();
-  if (existing && existing.count > 0) return;
+  if (existing && existing.count > 0) {
+    // Check if athletes need to be seeded from JSON
+    await seedAthletesFromJson();
+    return;
+  }
 
   console.log("Seeding database...");
 
@@ -159,4 +163,71 @@ export async function seedDatabase() {
   }).run();
 
   console.log("Database seeded successfully!");
+}
+
+export async function seedAthletesFromJson() {
+  try {
+    const { db: sqliteDb } = await import("./db");
+    const { athletes: athletesTable, facilityAthletes } = await import("@shared/schema");
+    const { count: countFn } = await import("drizzle-orm");
+    const { sql: sqlFn } = await import("drizzle-orm");
+    const path = (await import("path")).default;
+    const fs = (await import("fs")).default;
+
+    // Check current athlete count
+    const existing = sqliteDb.select({ count: countFn() }).from(athletesTable).get();
+    const currentCount = existing?.count ?? 0;
+
+    // If we already have 5000+ athletes, skip
+    if (currentCount >= 5000) {
+      console.log(`Athletes already seeded: ${currentCount}`);
+      return;
+    }
+
+    const seedPath = path.join(process.cwd(), "server", "athlete-seed.json");
+    if (!fs.existsSync(seedPath)) {
+      console.log("No athlete-seed.json found, skipping athlete seeding");
+      return;
+    }
+
+    console.log(`Seeding athletes from JSON (current: ${currentCount})...`);
+    const athletes = JSON.parse(fs.readFileSync(seedPath, "utf-8")) as any[];
+
+    // Clear existing athletes first
+    sqliteDb.run(sqlFn`DELETE FROM facility_athletes`);
+    sqliteDb.run(sqlFn`DELETE FROM athletes`);
+
+    const now = new Date().toISOString();
+    let imported = 0;
+
+    for (const a of athletes) {
+      sqliteDb.run(sqlFn`INSERT INTO athletes
+        (first_name, last_name, full_name, grad_year, school_name, city, state,
+         position, sport, sources, ig_status, ig_handle, ig_confidence,
+         nearest_facility_id, nearest_ig_account, priority_score, handle_status,
+         created_at, updated_at)
+        VALUES (${a.fn},${a.ln},${a.n},${a.gy},${a.sc},${a.ci},${a.st},
+                ${a.po},${a.sp||"baseball"},${"[\"Airtable\"]"},${a.is||"not_found"},
+                ${a.ig},${a.ic},${a.nf},${a.na},${a.ps||60},${a.hs},${now},${now})`);
+
+      const athId = sqliteDb.run(sqlFn`SELECT last_insert_rowid() as id`);
+      const rowid = (sqliteDb.get(sqlFn`SELECT last_insert_rowid() as id`) as any)?.id;
+
+      if (rowid && a.fids) {
+        for (const fid of a.fids) {
+          try {
+            sqliteDb.run(sqlFn`INSERT OR IGNORE INTO facility_athletes
+              (facility_id, athlete_id, zone, is_nearest, added_at)
+              VALUES (${fid},${rowid},'primary',${fid === a.nf ? 1 : 0},${now})`);
+          } catch {}
+        }
+      }
+      imported++;
+      if (imported % 1000 === 0) console.log(`  ${imported} athletes seeded...`);
+    }
+
+    console.log(`✅ Athletes seeded from JSON: ${imported}`);
+  } catch (err) {
+    console.error("Error seeding athletes from JSON:", err);
+  }
 }
