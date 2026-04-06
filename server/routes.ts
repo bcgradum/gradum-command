@@ -79,7 +79,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.query.minConfidence) qsExtra += `&ig_confidence=gte.${req.query.minConfidence}`;
       if (req.query.maxConfidence) qsExtra += `&ig_confidence=lte.${req.query.maxConfidence}`;
       if (req.query.gradYear) qsExtra += `&grad_year=eq.${req.query.gradYear}`;
-      const athletes = await sbAthletes.getByFacility(facilityId, qsExtra as any);
+      const athletes = await sbAthletes.getByFacility(facilityId, qsExtra);
       // Apply text search client-side if needed
       const search = String(req.query.search || "").toLowerCase();
       const filtered = search
