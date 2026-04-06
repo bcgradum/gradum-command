@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "npm run build && node dist/index.cjs",
+    "startCommand": "node dist/index.cjs",
     "healthcheckPath": "/api/activity",
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
