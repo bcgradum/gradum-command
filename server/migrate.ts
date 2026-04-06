@@ -102,5 +102,35 @@ export function runMigrations() {
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
 
+  db.run(sql`CREATE TABLE IF NOT EXISTS bookings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    location TEXT NOT NULL,
+    date_booked TEXT NOT NULL,
+    eval_date TEXT NOT NULL,
+    eval_time TEXT NOT NULL,
+    lead_name TEXT NOT NULL,
+    ig_handle TEXT,
+    phone TEXT,
+    assigned_rep TEXT,
+    show_status TEXT,
+    close_status TEXT,
+    revenue REAL,
+    reschedule_date TEXT,
+    reschedule_time TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+
+  db.run(sql`CREATE TABLE IF NOT EXISTS followups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    location TEXT NOT NULL,
+    date TEXT NOT NULL,
+    ig_username TEXT NOT NULL,
+    assigned_rep TEXT,
+    notes TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+
   console.log("Migrations complete.");
 }

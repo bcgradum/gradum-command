@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 export default function Login() {
   const { login } = useAuth();
   const { toast } = useToast();
-  const [email, setEmail] = useState("media@gradumgswing.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -14,7 +14,7 @@ export default function Login() {
     setLoading(true);
     const ok = await login(email, password);
     if (!ok) {
-      toast({ title: "Login failed", description: "Invalid email or password", variant: "destructive" });
+      toast({ title: "Login failed", description: "Invalid email/username or password", variant: "destructive" });
     }
     setLoading(false);
   };
@@ -50,11 +50,11 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "hsl(210, 10%, 52%)" }}>
-                Email
+                Email or Username
               </label>
               <input
                 data-testid="input-email"
-                type="email"
+                type="text"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 className="w-full mt-1 px-3 py-2 rounded-lg text-sm"
@@ -64,7 +64,7 @@ export default function Login() {
                   color: "hsl(210, 15%, 88%)",
                   outline: "none",
                 }}
-                placeholder="you@gradumgswing.com"
+                placeholder="you@gradumgswing.com or username"
                 required
               />
             </div>

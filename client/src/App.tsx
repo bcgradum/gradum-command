@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import FacilityDetail from "./pages/FacilityDetail";
+import Sales from "./pages/Sales";
 import NotFound from "./pages/not-found";
 import { Component, ReactNode } from "react";
 
@@ -40,6 +41,7 @@ function AppRoutes() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/facility/:id" component={FacilityDetail} />
+        <Route path="/sales" component={Sales} />
         <Route component={NotFound} />
       </Switch>
     </Router>

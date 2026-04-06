@@ -139,12 +139,22 @@ export async function seedDatabase() {
   activities.forEach(a => db.insert(activityLog).values(a).run());
 
   // Seed admin user
-  const hashedPassword = bcrypt.hashSync("gradum2024", 10);
+  const hashedAdminPassword = bcrypt.hashSync("gradum2024", 10);
   db.insert(users).values({
     name: "Admin",
     email: "media@gradumgswing.com",
-    password: hashedPassword,
+    password: hashedAdminPassword,
     role: "admin",
+    assignedFacilities: "[]",
+  }).run();
+
+  // Seed staff user (username stored in email field)
+  const hashedStaffPassword = bcrypt.hashSync("MediaLNS1!", 10);
+  db.insert(users).values({
+    name: "Teamgradum",
+    email: "Teamgradum",
+    password: hashedStaffPassword,
+    role: "staff",
     assignedFacilities: "[]",
   }).run();
 

@@ -1,6 +1,40 @@
 /**
  * Supabase client — persistent cloud database
  * Replaces SQLite for production storage
+ *
+ * ─── SUPABASE SQL — run these in your Supabase SQL editor ────────────────────
+ *
+ * CREATE TABLE IF NOT EXISTS bookings (
+ *   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ *   location TEXT NOT NULL,
+ *   date_booked TEXT NOT NULL,
+ *   eval_date TEXT NOT NULL,
+ *   eval_time TEXT NOT NULL,
+ *   lead_name TEXT NOT NULL,
+ *   ig_handle TEXT,
+ *   phone TEXT,
+ *   assigned_rep TEXT,
+ *   show_status TEXT,
+ *   close_status TEXT,
+ *   revenue REAL,
+ *   reschedule_date TEXT,
+ *   reschedule_time TEXT,
+ *   notes TEXT,
+ *   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ * );
+ *
+ * CREATE TABLE IF NOT EXISTS followups (
+ *   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ *   location TEXT NOT NULL,
+ *   date TEXT NOT NULL,
+ *   ig_username TEXT NOT NULL,
+ *   assigned_rep TEXT,
+ *   notes TEXT,
+ *   status TEXT NOT NULL DEFAULT 'active',
+ *   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ * );
+ *
+ * ────────────────────────────────────────────────────────────────────────────
  */
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
@@ -132,6 +166,66 @@ export const sbActivity = {
 };
 
 // ─── DASHBOARD STATS ──────────────────────────────────────────────────────────
+// Snake_case to camelCase mapper for bookings
+function mapBooking(b: any) {
+  return {
+    id: b.id,
+    location: b.location,
+    dateBooked: b.date_booked,
+    evalDate: b.eval_date,
+    evalTime: b.eval_time,
+    leadName: b.lead_name,
+    igHandle: b.ig_handle,
+    phone: b.phone,
+    assignedRep: b.assigned_rep,
+    showStatus: b.show_status,
+    closeStatus: b.close_status,
+    revenue: b.revenue,
+    rescheduleDate: b.reschedule_date,
+    rescheduleTime: b.reschedule_time,
+    notes: b.notes,
+    createdAt: b.created_at,
+  };
+}
+
+// Snake_case to camelCase mapper for followups
+function mapFollowup(f: any) {
+  return {
+    id: f.id,
+    location: f.location,
+    date: f.date,
+    igUsername: f.ig_username,
+    assignedRep: f.assigned_rep,
+    notes: f.notes,
+    status: f.status,
+    createdAt: f.created_at,
+  };
+}
+
+// ─── BOOKINGS ─────────────────────────────────────────────────────────────────
+export const sbBookings = {
+  getAll: (location?: string) => {
+    const qs = location
+      ? `/bookings?location=eq.${encodeURIComponent(location)}&select=*&order=created_at.desc`
+      : "/bookings?select=*&order=created_at.desc";
+    return sb(qs).then((r: any[]) => r.map(mapBooking));
+  },
+  insert: (data: any) => sb("/bookings", { method: "POST", body: JSON.stringify(data) }).then((r: any) => Array.isArray(r) ? mapBooking(r[0]) : mapBooking(r)),
+  update: (id: number, data: any) => sb(`/bookings?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(data) }).then((r: any) => Array.isArray(r) ? mapBooking(r[0]) : mapBooking(r)),
+};
+
+// ─── FOLLOWUPS ────────────────────────────────────────────────────────────────
+export const sbFollowups = {
+  getAll: (location?: string) => {
+    const qs = location
+      ? `/followups?location=eq.${encodeURIComponent(location)}&select=*&order=created_at.desc`
+      : "/followups?select=*&order=created_at.desc";
+    return sb(qs).then((r: any[]) => r.map(mapFollowup));
+  },
+  insert: (data: any) => sb("/followups", { method: "POST", body: JSON.stringify(data) }).then((r: any) => Array.isArray(r) ? mapFollowup(r[0]) : mapFollowup(r)),
+  update: (id: number, data: any) => sb(`/followups?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(data) }).then((r: any) => Array.isArray(r) ? mapFollowup(r[0]) : mapFollowup(r)),
+};
+
 export async function sbGetDashboardStats() {
   const [athletes, matched, activity] = await Promise.all([
     sb("/athletes?select=id,state"),
