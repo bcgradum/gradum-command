@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@layer base {
+  :root {
+    /* Command center dark palette — deep navy/slate with cyan accent */
+    --background: 222 20% 7%;
+    --foreground: 210 15% 88%;
+
+    --card: 222 18% 10%;
+    --card-foreground: 210 15% 88%;
+
+    --popover: 222 18% 10%;
+    --popover-foreground: 210 15% 88%;
+
+    --primary: 187 72% 48%;
+    --primary-foreground: 222 20% 7%;
+
+    --secondary: 222 15% 16%;
+    --secondary-foreground: 210 15% 78%;
+
+    --muted: 222 15% 14%;
+    --muted-foreground: 210 10% 52%;
+
+    --accent: 187 72% 48%;
+    --accent-foreground: 222 20% 7%;
+
+    --destructive: 0 65% 55%;
+    --destructive-foreground: 210 15% 88%;
+
+    --border: 222 15% 18%;
+    --input: 222 15% 16%;
+    --ring: 187 72% 48%;
+
+    --radius: 0.5rem;
+
+    /* Custom command center tokens */
+    --color-cyan: #33d4e0;
+    --color-cyan-dim: rgba(51, 212, 224, 0.12);
+    --color-cyan-border: rgba(51, 212, 224, 0.25);
+    --color-green: #4caf7d;
+    --color-green-dim: rgba(76, 175, 125, 0.12);
+    --color-amber: #f5a623;
+    --color-amber-dim: rgba(245, 166, 35, 0.12);
+    --color-red: #f45c6b;
+    --color-red-dim: rgba(244, 92, 107, 0.12);
+    --color-purple: #9b59b6;
+    --color-surface-1: hsl(222, 18%, 10%);
+    --color-surface-2: hsl(222, 18%, 13%);
+    --color-surface-3: hsl(222, 15%, 16%);
+    --color-border: hsl(222, 15%, 18%);
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    margin: 0;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    height: 100%;
+  }
+
+  /* Tabular numbers for data */
+  .tabular {
+    font-variant-numeric: tabular-nums lining-nums;
+    font-family: var(--font-mono);
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: hsl(222, 15%, 25%); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(222, 15%, 35%); }
+
+  /* Activity log terminal */
+  .terminal-log {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  /* Animated count-up */
+  .stat-number {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    letter-spacing: -0.5px;
+  }
+
+  /* Status badges */
+  .badge-verified { @apply bg-green-500/15 text-green-400 border border-green-500/25; }
+  .badge-low { @apply bg-amber-500/15 text-amber-400 border border-amber-500/25; }
+  .badge-review { @apply bg-orange-500/15 text-orange-400 border border-orange-500/25; }
+  .badge-not-found { @apply bg-red-500/15 text-red-400 border border-red-500/25; }
+  .badge-active { @apply bg-cyan-500/15 text-cyan-400 border border-cyan-500/25; }
+  .badge-parked { @apply bg-gray-500/15 text-gray-400 border border-gray-500/25; }
+
+  /* Glow pulse for operational status */
+  @keyframes glow-pulse {
+    0%, 100% { box-shadow: 0 0 4px var(--color-green), 0 0 8px rgba(76,175,125,0.3); }
+    50% { box-shadow: 0 0 8px var(--color-green), 0 0 16px rgba(76,175,125,0.5); }
+  }
+  .operational-dot {
+    animation: glow-pulse 2s ease-in-out infinite;
+  }
+
+  /* Activity type colors */
+  .act-school { color: #9b59b6; }
+  .act-roster { color: #3498db; }
+  .act-ig { color: #33d4e0; }
+  .act-system { color: #4caf7d; }
+  .act-error { color: #f45c6b; }
+}
