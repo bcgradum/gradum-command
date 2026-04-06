@@ -657,7 +657,7 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
                   {isAdmin && <td style={tdStyle}><CloseBadge status={b.closeStatus} /></td>}
                   {isAdmin && (
                     <td style={{ ...monoTd, textAlign: "right", color: b.revenue ? S.green : S.textDim }}>
-                      {b.revenue != null ? `$${b.revenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
+                      {b.revenue != null && b.revenue !== 0 && !isNaN(Number(b.revenue)) ? `$${Number(b.revenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
                     </td>
                   )}
                   <td style={{ ...tdStyle, textAlign: "center" }}>

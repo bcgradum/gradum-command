@@ -28,8 +28,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ─── DASHBOARD ─────────────────────────────────────────────────────────────────────────────────────
   app.get("/api/dashboard", async (_req, res) => {
-    try { res.json(await sbGetDashboardStats()); }
-    catch { res.json(storage.getDashboardStats()); } // fallback to SQLite
+    try {
+      const sbStats = await sbGetDashboardStats();
+      // If Supabase has no athletes, fall back to SQLite
+      if (sbStats.totalAthletes === 0) throw new Error("Supabase empty");
+      res.json(sbStats);
+    }
+    catch { res.json(storage.getDashboardStats()); }
   });
 
   // ─── FACILITIES ──────────────────────────────────────────────────────────────────────────────────────
@@ -51,7 +56,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/facilities/:id/stats", async (req, res) => {
-    try { res.json(await sbGetFacilityStats(Number(req.params.id))); }
+    try {
+      const sbStats = await sbGetFacilityStats(Number(req.params.id));
+      if (sbStats.totalAthletes === 0) throw new Error("Supabase empty");
+      res.json(sbStats);
+    }
     catch { res.json(storage.getFacilityStats(Number(req.params.id))); }
   });
 
@@ -80,16 +89,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.query.minConfidence) qsExtra += `&ig_confidence=gte.${req.query.minConfidence}`;
       if (req.query.maxConfidence) qsExtra += `&ig_confidence=lte.${req.query.maxConfidence}`;
       if (req.query.gradYear) qsExtra += `&grad_year=eq.${req.query.gradYear}`;
-      const athletes = await sbAthletes.getByFacility(facilityId, qsExtra);
-      // Apply text search client-side if needed
-      const search = String(req.query.search || "").toLowerCase();
-      const filtered = search
-        ? athletes.filter((a: any) =>
-            a.full_name?.toLowerCase().includes(search) ||
-            a.school_name?.toLowerCase().includes(search) ||
-            a.ig_handle?.toLowerCase().includes(search))
-        : athletes;
-      res.json(filtered);
+      const sbResult = await sbAthletes.getByFacility(facilityId, qsExtra);
+      // If Supabase returned data use it, otherwise fall back to SQLite
+      if (sbResult.length > 0) {
+        const search = String(req.query.search || "").toLowerCase();
+        const filtered = search
+          ? sbResult.filter((a: any) =>
+              a.fullName?.toLowerCase().includes(search) ||
+              a.schoolName?.toLowerCase().includes(search) ||
+              a.igHandle?.toLowerCase().includes(search))
+          : sbResult;
+        return res.json(filtered);
+      }
+      // Fall through to SQLite if Supabase is empty
+      throw new Error("Supabase empty, using SQLite");
     } catch {
       const localFilters: any = {};
       if (req.query.sport) localFilters.sport = req.query.sport;
@@ -478,7 +491,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const no_sales = filtered.filter((b: any) => b.closeStatus === "no_sale").length;
       const reschedules = filtered.filter((b: any) => b.showStatus === "reschedule").length;
       const cancels = filtered.filter((b: any) => b.showStatus === "cancel" || b.showStatus === "no_show").length;
-      const revenue = filtered.reduce((sum: number, b: any) => sum + (b.revenue || 0), 0);
+      const revenue = filtered.reduce((sum: number, b: any) => sum + (parseFloat(b.revenue) || 0), 0);
       const tba = filtered.filter((b: any) => getDisplayStatus(b) === "tba").length;
       const pending = filtered.filter((b: any) => getDisplayStatus(b) === "pending").length;
 
@@ -495,7 +508,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (b.closeStatus === "no_sale") locationMap[loc].no_sales++;
         if (b.showStatus === "reschedule") locationMap[loc].reschedules++;
         if (b.showStatus === "cancel" || b.showStatus === "no_show") locationMap[loc].cancels++;
-        locationMap[loc].revenue += b.revenue || 0;
+        locationMap[loc].revenue += parseFloat(b.revenue) || 0;
         const ds = getDisplayStatus(b);
         if (ds === "tba") locationMap[loc].tba++;
         if (ds === "pending") locationMap[loc].pending++;
