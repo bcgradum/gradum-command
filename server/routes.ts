@@ -162,6 +162,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/athletes — import a new athlete (used by Make.com Google Sheets sync)
+  app.post("/api/athletes", async (req, res) => {
+    const { firstName, lastName, fullName, gradYear, schoolName, travelTeam, city, state, position, sport, igHandle, igConfidence, nearestFacilityId, nearestIgAccount, sources } = req.body;
+    if (!fullName && !firstName) return res.status(400).json({ error: "fullName required" });
+    const now = new Date().toISOString();
+    const fn = firstName || fullName.split(" ")[0];
+    const ln = lastName || fullName.split(" ").slice(1).join(" ");
+    const igStatus = igHandle ? "matched" : "not_searched";
+    try {
+      const Database = (await import("better-sqlite3")).default;
+      const path = (await import("path")).default;
+      const db = new Database(path.join(process.cwd(), "gradum.db"));
+      const existing = db.prepare("SELECT id FROM athletes WHERE LOWER(full_name)=? AND grad_year=?").get((fullName || `${fn} ${ln}`).toLowerCase(), gradYear);
+      if (existing) { db.close(); return res.json({ id: (existing as any).id, duplicate: true }); }
+      const result = db.prepare(`INSERT INTO athletes (first_name,last_name,full_name,grad_year,school_name,travel_team,city,state,position,sport,sources,ig_status,ig_handle,ig_confidence,nearest_facility_id,nearest_ig_account,priority_score,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .run(fn, ln, fullName || `${fn} ${ln}`, gradYear, schoolName, travelTeam, city, state, position, sport || "baseball", JSON.stringify(sources || ["Make.com"]), igStatus, igHandle || null, igConfidence || null, nearestFacilityId || null, nearestIgAccount || null, 70, now, now);
+      if (nearestFacilityId) {
+        db.prepare("INSERT OR IGNORE INTO facility_athletes (facility_id,athlete_id,zone,is_nearest,added_at) VALUES (?,?,'primary',1,?)").run(nearestFacilityId, result.lastInsertRowid, now);
+      }
+      db.close();
+      res.json({ id: result.lastInsertRowid, created: true });
+    } catch(err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   app.patch("/api/athletes/:id/ig", async (req, res) => {
     const id = Number(req.params.id);
     const { handleStatus, ...rest } = req.body;
