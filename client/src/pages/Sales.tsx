@@ -66,6 +66,18 @@ interface SalesStats {
   }[];
 }
 
+interface RepStat {
+  rep: string;
+  booked: number;
+  shows: number;
+  closes: number;
+  noSales: number;
+  cancels: number;
+  revenue: number;
+  showRate: number;
+  closeRate: number;
+}
+
 // ─── STYLE HELPERS ────────────────────────────────────────────────────────────
 
 const S = {
@@ -122,7 +134,6 @@ function ShowBadge({ status, evalDate, computedStatus }: { status?: string | nul
     } else if (computedStatus === 'pending') {
       displayStatus = 'pending';
     } else if (evalDate) {
-      const evalDateStr = evalDate.replace(/(\/)/g, '-');
       displayStatus = evalDate > today ? 'tba' : 'pending';
     } else {
       displayStatus = 'pending';
@@ -453,6 +464,233 @@ function OutcomeModal({
   );
 }
 
+// ─── EDIT BOOKING MODAL (admin only) ─────────────────────────────────────────
+
+function EditBookingModal({
+  booking, onClose, onSuccess,
+}: {
+  booking: Booking;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [form, setForm] = useState({
+    location: booking.location || FACILITIES[0],
+    dateBooked: booking.dateBooked || "",
+    evalDate: booking.evalDate || "",
+    evalTime: booking.evalTime || "",
+    leadName: booking.leadName || "",
+    igHandle: booking.igHandle || "",
+    phone: booking.phone || "",
+    assignedRep: booking.assignedRep || "",
+    showStatus: booking.showStatus || "",
+    closeStatus: booking.closeStatus || "",
+    revenue: booking.revenue != null ? String(booking.revenue) : "",
+    notes: booking.notes || "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const set = (k: keyof typeof form, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.leadName) {
+      setError("Lead Name is required.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await apiRequest("PATCH", `/api/bookings/${booking.id}`, {
+        location: form.location,
+        dateBooked: form.dateBooked || null,
+        evalDate: form.evalDate || null,
+        evalTime: form.evalTime || null,
+        leadName: form.leadName,
+        igHandle: form.igHandle || null,
+        phone: form.phone || null,
+        assignedRep: form.assignedRep || null,
+        showStatus: form.showStatus || null,
+        closeStatus: form.showStatus === "show" ? (form.closeStatus || null) : null,
+        revenue: form.showStatus === "show" && form.closeStatus === "close" && form.revenue
+          ? parseFloat(form.revenue) : null,
+        notes: form.notes || null,
+      });
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      setError(err.message || "Failed to update booking.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} title={`Edit Booking — ${booking.leadName}`}>
+      <form onSubmit={handleSubmit}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          {/* Location */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={labelStyle()}>Location</label>
+            <select value={form.location} onChange={e => set("location", e.target.value)} style={inputStyle()}>
+              {FACILITIES.map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </div>
+
+          {/* Date Lead Booked */}
+          <div>
+            <label style={labelStyle()}>Date Lead Booked</label>
+            <input
+              type="text"
+              value={form.dateBooked}
+              onChange={e => set("dateBooked", e.target.value)}
+              style={inputStyle()}
+              placeholder="M/D/YYYY"
+            />
+          </div>
+
+          {/* Eval Time */}
+          <div>
+            <label style={labelStyle()}>Eval Time</label>
+            <input
+              type="text"
+              value={form.evalTime}
+              onChange={e => set("evalTime", e.target.value)}
+              style={inputStyle()}
+              placeholder="e.g. 10:00 AM"
+            />
+          </div>
+
+          {/* Lead Name */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={labelStyle()}>Lead Name *</label>
+            <input
+              type="text"
+              value={form.leadName}
+              onChange={e => set("leadName", e.target.value)}
+              style={inputStyle()}
+              placeholder="Full name"
+              required
+            />
+          </div>
+
+          {/* IG Handle */}
+          <div>
+            <label style={labelStyle()}>IG Handle</label>
+            <input
+              type="text"
+              value={form.igHandle}
+              onChange={e => set("igHandle", e.target.value)}
+              style={inputStyle()}
+              placeholder="@username"
+            />
+          </div>
+
+          {/* Phone */}
+          <div>
+            <label style={labelStyle()}>Phone</label>
+            <input
+              type="tel"
+              value={form.phone}
+              onChange={e => set("phone", e.target.value)}
+              style={inputStyle()}
+              placeholder="(555) 000-0000"
+            />
+          </div>
+
+          {/* Assigned Rep */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={labelStyle()}>Assigned Rep</label>
+            <input
+              type="text"
+              value={form.assignedRep}
+              onChange={e => set("assignedRep", e.target.value)}
+              style={inputStyle()}
+              placeholder="Rep name"
+            />
+          </div>
+
+          {/* Show Status */}
+          <div>
+            <label style={labelStyle()}>Show Status</label>
+            <select
+              value={form.showStatus}
+              onChange={e => { set("showStatus", e.target.value); if (e.target.value !== "show") set("closeStatus", ""); }}
+              style={inputStyle()}
+            >
+              <option value="">— Pending —</option>
+              <option value="show">Show</option>
+              <option value="no_show">No Show</option>
+              <option value="reschedule">Reschedule</option>
+              <option value="cancel">Cancel</option>
+            </select>
+          </div>
+
+          {/* Close Status — only if show */}
+          {form.showStatus === "show" && (
+            <div>
+              <label style={labelStyle()}>Close Status</label>
+              <select
+                value={form.closeStatus}
+                onChange={e => { set("closeStatus", e.target.value); if (e.target.value !== "close") set("revenue", ""); }}
+                style={inputStyle()}
+              >
+                <option value="">— Pending —</option>
+                <option value="close">Close</option>
+                <option value="no_sale">No Sale</option>
+              </select>
+            </div>
+          )}
+
+          {/* Revenue — only if close */}
+          {form.showStatus === "show" && form.closeStatus === "close" && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={labelStyle()}>Revenue ($)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.revenue}
+                onChange={e => set("revenue", e.target.value)}
+                style={inputStyle()}
+                placeholder="0.00"
+              />
+            </div>
+          )}
+
+          {/* Notes */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={labelStyle()}>Notes</label>
+            <textarea
+              value={form.notes}
+              onChange={e => set("notes", e.target.value)}
+              style={{ ...inputStyle(), resize: "vertical", minHeight: 72 }}
+              placeholder="Optional notes..."
+            />
+          </div>
+        </div>
+
+        {error && <div style={{ color: S.red, fontSize: 12, marginTop: 10 }}>{error}</div>}
+        <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end" }}>
+          <button type="button" onClick={onClose} style={{
+            background: "none", border: `1px solid ${S.border}`, color: S.textMuted,
+            borderRadius: 8, padding: "7px 16px", cursor: "pointer", fontSize: 13,
+          }}>
+            Cancel
+          </button>
+          <button type="submit" disabled={loading} style={{
+            background: loading ? S.borderDim : S.cyan, color: "#0d1117",
+            border: "none", borderRadius: 8, padding: "7px 18px",
+            fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", fontSize: 13,
+          }}>
+            {loading ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 // ─── NEW FOLLOW-UP FORM ───────────────────────────────────────────────────────
 
 function NewFollowupModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
@@ -545,14 +783,58 @@ function NewFollowupModal({ onClose, onSuccess }: { onClose: () => void; onSucce
   );
 }
 
+// ─── DAYS AGO HELPER ──────────────────────────────────────────────────────────
+
+function daysAgo(dateStr: string | undefined | null): number | null {
+  if (!dateStr) return null;
+  const parts = dateStr.split("/");
+  if (parts.length !== 3) return null;
+  const evalDate = new Date(`${parts[2]}-${parts[0].padStart(2, "0")}-${parts[1].padStart(2, "0")}`);
+  if (isNaN(evalDate.getTime())) return null;
+  const diff = Math.floor((Date.now() - evalDate.getTime()) / (1000 * 60 * 60 * 24));
+  return diff >= 0 ? diff : null;
+}
+
+function DaysAgoBadge({ dateStr }: { dateStr: string | undefined | null }) {
+  const days = daysAgo(dateStr);
+  if (days === null) return <span style={{ color: "hsl(210,10%,35%)", fontFamily: "var(--font-mono)", fontSize: 12 }}>—</span>;
+  let color: string;
+  if (days === 0) color = "#2cba6e";       // green = today
+  else if (days <= 30) color = "#f59e0b";  // amber = 1-30 days
+  else color = "#f45c6b";                  // red = 31+ days
+  return (
+    <span style={{
+      display: "inline-block", padding: "2px 7px", borderRadius: 4,
+      fontSize: 11, fontWeight: 600, fontFamily: "var(--font-mono, monospace)",
+      color, background: `${color}18`,
+    }}>
+      {days === 0 ? "Today" : `${days}d ago`}
+    </span>
+  );
+}
+
+// ─── DATE SORT HELPER ─────────────────────────────────────────────────────────
+
+function parseBookingDate(d: string | undefined | null): number {
+  if (!d) return 0;
+  const parts = d.split("/");
+  if (parts.length === 3) {
+    const ts = new Date(`${parts[2]}-${parts[0].padStart(2, "0")}-${parts[1].padStart(2, "0")}`).getTime();
+    return isNaN(ts) ? 0 : ts;
+  }
+  return new Date(d).getTime() || 0;
+}
+
 // ─── BOOKINGS TAB ─────────────────────────────────────────────────────────────
 
 function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
   const qc = useQueryClient();
   const [showNewModal, setShowNewModal] = useState(false);
   const [outcomeBooking, setOutcomeBooking] = useState<Booking | null>(null);
+  const [editBooking, setEditBooking] = useState<Booking | null>(null);
   const [locationFilter, setLocationFilter] = useState("");
   const [noSaleOnly, setNoSaleOnly] = useState(false);
+  const [bookingSearch, setBookingSearch] = useState("");
 
   const { data: bookings = [], isLoading } = useQuery<Booking[]>({
     queryKey: ["/api/bookings", locationFilter],
@@ -564,6 +846,21 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
   });
 
   const refresh = useCallback(() => qc.invalidateQueries({ queryKey: ["/api/bookings"] }), [qc]);
+
+  // Sort bookings by dateBooked, newest first (Change 3)
+  const sortedBookings = [...bookings].sort((a, b) =>
+    parseBookingDate(b.dateBooked) - parseBookingDate(a.dateBooked)
+  );
+
+  // Search filter (Change 5)
+  // No Sale filter + search filter combined (Change 5 & 6)
+  const displayBookings = sortedBookings
+    .filter(b => noSaleOnly ? b.closeStatus === "no_sale" : true)
+    .filter(b => {
+      if (!bookingSearch) return true;
+      const s = bookingSearch.toLowerCase();
+      return b.leadName?.toLowerCase().includes(s) || b.igHandle?.toLowerCase().includes(s);
+    });
 
   const thStyle: React.CSSProperties = {
     padding: "8px 12px", fontSize: 11, fontWeight: 600,
@@ -577,10 +874,13 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
   };
   const monoTd: React.CSSProperties = { ...tdStyle, fontFamily: S.mono };
 
+  // Column count for empty state
+  const colCount = isAdmin ? (noSaleOnly ? 12 : 11) : (noSaleOnly ? 9 : 8);
+
   return (
     <div>
       {/* Toolbar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <button
           onClick={() => setShowNewModal(true)}
           style={{
@@ -599,11 +899,28 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
           <option value="">All Locations</option>
           {FACILITIES.map(f => <option key={f} value={f}>{f}</option>)}
         </select>
+        {/* Search input (Change 5) */}
+        <input
+          type="text"
+          value={bookingSearch}
+          onChange={e => setBookingSearch(e.target.value)}
+          placeholder="Search name or IG handle..."
+          style={{
+            ...inputStyle({ width: "auto" }),
+            minWidth: 220,
+            background: S.borderDim,
+            border: `1px solid ${S.border}`,
+            color: S.textPrimary,
+            borderRadius: 8,
+            padding: "6px 10px",
+            fontSize: 13,
+          }}
+        />
         {/* No Sale Follow-Up quick filter */}
         <button
           onClick={() => setNoSaleOnly(!noSaleOnly)}
           style={{
-            background: noSaleOnly ? "rgba(249,115,22,0.15)" : S.surface,
+            background: noSaleOnly ? "rgba(249,115,22,0.15)" : "transparent",
             color: noSaleOnly ? S.orange : S.textMuted,
             border: `1px solid ${noSaleOnly ? S.orange : S.border}`,
             borderRadius: 8, padding: "7px 14px", fontSize: 12,
@@ -612,12 +929,12 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
           }}
           data-testid="button-no-sale-filter"
         >
-          {noSaleOnly ? "✕" : ""} No Sale Follow-Ups
-          {noSaleOnly && <span style={{ fontSize: 10 }}>({bookings.filter(b => b.closeStatus === "no_sale").length})</span>}
+          {noSaleOnly ? "✕ " : ""}No Sale Follow-Ups
+          {noSaleOnly && <span style={{ fontSize: 10 }}>({sortedBookings.filter(b => b.closeStatus === "no_sale").length})</span>}
         </button>
         <div style={{ marginLeft: "auto", color: S.textMuted, fontSize: 12 }}>
           {noSaleOnly
-            ? `${bookings.filter(b => b.closeStatus === "no_sale").length} no-sale leads`
+            ? `${sortedBookings.filter(b => b.closeStatus === "no_sale").length} no-sale leads`
             : `${bookings.length} bookings`}
         </div>
       </div>
@@ -635,6 +952,8 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
                 <th style={thStyle}>Rep</th>
                 <th style={thStyle}>Eval Date</th>
                 <th style={thStyle}>Time</th>
+                {/* Days Ago column — only when noSaleOnly (Change 6) */}
+                {noSaleOnly && <th style={thStyle}>Days Ago</th>}
                 {isAdmin && <th style={thStyle}>Show</th>}
                 {isAdmin && <th style={thStyle}>Close</th>}
                 {isAdmin && <th style={{ ...thStyle, textAlign: "right" }}>Revenue</th>}
@@ -644,19 +963,21 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={isAdmin ? 11 : 8} style={{ ...tdStyle, textAlign: "center", color: S.textMuted, padding: 32 }}>
+                  <td colSpan={colCount} style={{ ...tdStyle, textAlign: "center", color: S.textMuted, padding: 32 }}>
                     Loading...
                   </td>
                 </tr>
               )}
-              {!isLoading && bookings.length === 0 && (
+              {!isLoading && displayBookings.length === 0 && (
                 <tr>
-                  <td colSpan={isAdmin ? 11 : 8} style={{ ...tdStyle, textAlign: "center", color: S.textMuted, padding: 32 }}>
-                    No bookings yet. Click "+ New Booking" to add one.
+                  <td colSpan={colCount} style={{ ...tdStyle, textAlign: "center", color: S.textMuted, padding: 32 }}>
+                    {bookings.length === 0
+                      ? 'No bookings yet. Click "+ New Booking" to add one.'
+                      : "No bookings match your search."}
                   </td>
                 </tr>
               )}
-              {(noSaleOnly ? bookings.filter(b => b.closeStatus === "no_sale") : bookings).map(b => (
+              {displayBookings.map(b => (
                 <tr
                   key={b.id}
                   style={{ background: S.bg, transition: "background 0.1s" }}
@@ -672,6 +993,12 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
                   <td style={{ ...tdStyle, color: S.textMuted }}>{b.assignedRep || "—"}</td>
                   <td style={monoTd}>{b.evalDate}</td>
                   <td style={{ ...monoTd, color: S.textMuted }}>{b.evalTime}</td>
+                  {/* Days Ago cell — only when noSaleOnly (Change 6) */}
+                  {noSaleOnly && (
+                    <td style={tdStyle}>
+                      <DaysAgoBadge dateStr={b.evalDate} />
+                    </td>
+                  )}
                   {isAdmin && <td style={tdStyle}><ShowBadge status={b.showStatus} evalDate={b.evalDate} computedStatus={b.notes} /></td>}
                   {isAdmin && <td style={tdStyle}><CloseBadge status={b.closeStatus} /></td>}
                   {isAdmin && (
@@ -680,19 +1007,43 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
                     </td>
                   )}
                   <td style={{ ...tdStyle, textAlign: "center" }}>
-                    {isAdmin && (
-                      <button
-                        onClick={() => setOutcomeBooking(b)}
-                        style={{
-                          background: S.cyanDim, border: `1px solid rgba(51,212,224,0.2)`,
-                          color: S.cyan, borderRadius: 6, padding: "3px 10px",
-                          fontSize: 11, fontWeight: 600, cursor: "pointer",
-                        }}
-                      >
-                        Outcomes
-                      </button>
-                    )}
-                    {!isAdmin && <span style={{ color: S.textDim, fontSize: 11 }}>—</span>}
+                    <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
+                      {isAdmin && (
+                        <button
+                          onClick={() => setOutcomeBooking(b)}
+                          style={{
+                            background: S.cyanDim, border: `1px solid rgba(51,212,224,0.2)`,
+                            color: S.cyan, borderRadius: 6, padding: "3px 10px",
+                            fontSize: 11, fontWeight: 600, cursor: "pointer",
+                          }}
+                        >
+                          Outcomes
+                        </button>
+                      )}
+                      {/* Edit button — admin only (Change 4) */}
+                      {isAdmin && (
+                        <button
+                          onClick={() => setEditBooking(b)}
+                          title="Edit booking"
+                          style={{
+                            background: "rgba(100,100,120,0.12)",
+                            border: `1px solid ${S.border}`,
+                            color: S.textMuted,
+                            borderRadius: 6, padding: "3px 8px",
+                            fontSize: 11, fontWeight: 600, cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: 4,
+                          }}
+                        >
+                          {/* Pencil icon */}
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                          Edit
+                        </button>
+                      )}
+                      {!isAdmin && <span style={{ color: S.textDim, fontSize: 11 }}>—</span>}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -706,6 +1057,10 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
       )}
       {outcomeBooking && (
         <OutcomeModal booking={outcomeBooking} onClose={() => setOutcomeBooking(null)} onSuccess={refresh} />
+      )}
+      {/* Edit booking modal (Change 4) */}
+      {editBooking && (
+        <EditBookingModal booking={editBooking} onClose={() => setEditBooking(null)} onSuccess={refresh} />
       )}
     </div>
   );
@@ -910,6 +1265,20 @@ function KpiCard({
   );
 }
 
+// ─── RATE COLOR HELPER ────────────────────────────────────────────────────────
+
+function showRateColor(rate: number): string {
+  if (rate >= 70) return S.green;
+  if (rate >= 50) return S.amber;
+  return S.red;
+}
+
+function closeRateColor(rate: number): string {
+  if (rate >= 30) return S.green;
+  if (rate >= 20) return S.amber;
+  return S.red;
+}
+
 // ─── DASHBOARD TAB ────────────────────────────────────────────────────────────
 
 function DashboardTab() {
@@ -922,6 +1291,17 @@ function DashboardTab() {
       return res.json();
     },
   });
+
+  // Rep Performance (Change 9)
+  const { data: repStats = [], isLoading: repLoading } = useQuery<RepStat[]>({
+    queryKey: ["/api/sales/rep-stats"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/sales/rep-stats");
+      return res.json();
+    },
+  });
+
+  const sortedReps = [...repStats].sort((a, b) => b.revenue - a.revenue);
 
   const periods: { key: "day" | "week" | "month" | "all"; label: string }[] = [
     { key: "day", label: "Today" },
@@ -1002,7 +1382,7 @@ function DashboardTab() {
           <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: S.textMuted }}>
             By Location
           </div>
-          <div style={{ borderRadius: 10, border: `1px solid ${S.border}`, overflow: "hidden" }}>
+          <div style={{ borderRadius: 10, border: `1px solid ${S.border}`, overflow: "hidden", marginBottom: 32 }}>
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead style={{ background: S.card }}>
@@ -1054,6 +1434,88 @@ function DashboardTab() {
           </div>
         </>
       )}
+
+      {/* Rep Performance Section (Change 9) */}
+      <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: S.textMuted }}>
+        Rep Performance
+      </div>
+      <div style={{ borderRadius: 10, border: `1px solid ${S.border}`, overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead style={{ background: S.card }}>
+              <tr>
+                <th style={thStyle}>Rep Name</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Booked</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Shows</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Show Rate</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Closes</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Close Rate</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Revenue</th>
+              </tr>
+            </thead>
+            <tbody>
+              {repLoading && (
+                <tr>
+                  <td colSpan={7} style={{ ...tdStyle, textAlign: "center", color: S.textMuted, padding: 28, fontFamily: "inherit" }}>
+                    Loading rep data...
+                  </td>
+                </tr>
+              )}
+              {!repLoading && sortedReps.length === 0 && (
+                <tr>
+                  <td colSpan={7} style={{ ...tdStyle, textAlign: "center", color: S.textMuted, padding: 28, fontFamily: "inherit" }}>
+                    No rep data yet — reps need to fill in the Assigned Rep field when logging bookings
+                  </td>
+                </tr>
+              )}
+              {sortedReps.map(r => (
+                <tr
+                  key={r.rep}
+                  style={{ background: S.bg }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "hsl(222, 20%, 9%)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = S.bg)}
+                >
+                  <td style={{ ...tdStyle, fontFamily: "inherit", fontWeight: 600, color: S.textPrimary }}>
+                    {r.rep}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>{r.booked}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: r.shows > 0 ? S.green : S.textMuted }}>{r.shows}</td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>
+                    {r.booked > 0 ? (
+                      <span style={{
+                        display: "inline-block", padding: "2px 7px", borderRadius: 4,
+                        fontSize: 11, fontWeight: 700, fontFamily: S.mono,
+                        color: showRateColor(r.showRate),
+                        background: `${showRateColor(r.showRate)}18`,
+                      }}>
+                        {r.showRate}%
+                      </span>
+                    ) : <span style={{ color: S.textDim }}>—</span>}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: r.closes > 0 ? S.cyan : S.textMuted }}>{r.closes}</td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>
+                    {r.shows > 0 ? (
+                      <span style={{
+                        display: "inline-block", padding: "2px 7px", borderRadius: 4,
+                        fontSize: 11, fontWeight: 700, fontFamily: S.mono,
+                        color: closeRateColor(r.closeRate),
+                        background: `${closeRateColor(r.closeRate)}18`,
+                      }}>
+                        {r.closeRate}%
+                      </span>
+                    ) : <span style={{ color: S.textDim }}>—</span>}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: r.revenue > 0 ? S.green : S.textDim, fontWeight: r.revenue > 0 ? 700 : 400 }}>
+                    {r.revenue > 0
+                      ? `$${r.revenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

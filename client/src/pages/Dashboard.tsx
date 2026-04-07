@@ -16,6 +16,8 @@ interface FacilityStats {
   totalAthletes: number;
   matched: number;
   matchRate: number;
+  showRate?: number;
+  closeRate?: number;
 }
 
 function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
@@ -75,12 +77,17 @@ function FacilityCard({ facility }: { facility: Facility }) {
   const matchRate = stats?.matchRate ?? 0;
   const total = stats?.totalAthletes ?? 0;
   const matched = stats?.matched ?? 0;
+  const showRate = stats?.showRate ?? 0;
+  const closeRate = stats?.closeRate ?? 0;
 
   const stateColors: Record<string, string> = {
     FL: "#3498db", TX: "#f5a623", NC: "#4caf7d", SC: "#9b59b6",
     GA: "#e74c3c", OK: "#e67e22", UT: "#1abc9c",
   };
   const stateColor = stateColors[facility.state] || "var(--color-cyan)";
+
+  const showRateColor = showRate >= 70 ? "var(--color-green)" : showRate >= 50 ? "var(--color-amber)" : showRate === 0 ? "hsl(210, 10%, 40%)" : "var(--color-red)";
+  const closeRateColor = closeRate >= 30 ? "var(--color-green)" : closeRate >= 20 ? "var(--color-amber)" : closeRate === 0 ? "hsl(210, 10%, 40%)" : "var(--color-red)";
 
   if (facility.status === "parked") return null;
 
@@ -109,8 +116,8 @@ function FacilityCard({ facility }: { facility: Facility }) {
           </div>
         </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-2 mb-3">
+        {/* Stats row 1: Athletes, Matched, Match Rate */}
+        <div className="grid grid-cols-3 gap-2 mb-2">
           <div>
             <div className="text-xs" style={{ color: "hsl(210, 10%, 40%)" }}>Athletes</div>
             <div className="text-lg font-bold tabular" style={{ color: "hsl(210, 15%, 88%)" }}>
@@ -127,6 +134,22 @@ function FacilityCard({ facility }: { facility: Facility }) {
             <div className="text-xs" style={{ color: "hsl(210, 10%, 40%)" }}>Match Rate</div>
             <div className="text-lg font-bold tabular" style={{ color: matchRate >= 80 ? "var(--color-green)" : matchRate >= 60 ? "var(--color-amber)" : "var(--color-red)" }}>
               {matchRate}%
+            </div>
+          </div>
+        </div>
+
+        {/* Stats row 2: Show Rate, Close Rate */}
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <div>
+            <div className="text-xs" style={{ color: "hsl(210, 10%, 40%)" }}>Show Rate</div>
+            <div className="text-base font-bold tabular" style={{ color: showRateColor }}>
+              {showRate > 0 ? `${showRate}%` : "—"}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs" style={{ color: "hsl(210, 10%, 40%)" }}>Close Rate</div>
+            <div className="text-base font-bold tabular" style={{ color: closeRateColor }}>
+              {closeRate > 0 ? `${closeRate}%` : "—"}
             </div>
           </div>
         </div>

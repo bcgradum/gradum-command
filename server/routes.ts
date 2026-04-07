@@ -56,12 +56,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/facilities/:id/stats", async (req, res) => {
+    const facilityId = Number(req.params.id);
     try {
-      const sbStats = await sbGetFacilityStats(Number(req.params.id));
-      if (sbStats.totalAthletes === 0) throw new Error("Supabase empty");
-      res.json(sbStats);
+      // Get base stats from Supabase or SQLite
+      let baseStats: any;
+      try {
+        const sbStats = await sbGetFacilityStats(facilityId);
+        if (sbStats.totalAthletes === 0) throw new Error("Supabase empty");
+        baseStats = sbStats;
+      } catch {
+        baseStats = storage.getFacilityStats(facilityId);
+      }
+
+      // Get facility info for the location name lookup
+      let facilityName = "";
+      try {
+        const facility = await sbFacilities.getById(facilityId);
+        if (facility?.locationName) {
+          facilityName = facility.locationName.replace("Gradum Gswing ", "").replace("Gradum ", "");
+        }
+      } catch {
+        const facility = storage.getFacility(facilityId);
+        if (facility?.locationName) {
+          facilityName = facility.locationName.replace("Gradum Gswing ", "").replace("Gradum ", "");
+        }
+      }
+
+      // Get booking stats for show rate / close rate
+      let showRate = 0;
+      let closeRate = 0;
+      try {
+        const Database = (await import("better-sqlite3")).default;
+        const path = (await import("path")).default;
+        const db = new Database(path.join(process.cwd(), "gradum.db"));
+        const bookingStats = db.prepare(`
+          SELECT 
+            COUNT(*) as total_booked,
+            SUM(CASE WHEN show_status = 'show' THEN 1 ELSE 0 END) as total_shows,
+            SUM(CASE WHEN close_status = 'close' THEN 1 ELSE 0 END) as total_closes
+          FROM bookings WHERE location = ?
+        `).get(facilityName) as any;
+        db.close();
+        if (bookingStats) {
+          showRate = bookingStats.total_booked > 0 ? Math.round((bookingStats.total_shows / bookingStats.total_booked) * 100) : 0;
+          closeRate = bookingStats.total_shows > 0 ? Math.round((bookingStats.total_closes / bookingStats.total_shows) * 100) : 0;
+        }
+      } catch (e) {
+        // Booking stats unavailable — return rates as 0
+      }
+
+      res.json({ ...baseStats, showRate, closeRate });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
-    catch { res.json(storage.getFacilityStats(Number(req.params.id))); }
   });
 
   app.get("/api/facilities/:id/activity", async (req, res) => {
@@ -264,7 +311,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!facility || !facility.lat || !facility.lng) return res.status(404).json({ error: "Facility not found or no coordinates" });
     try {
       const run = await discoverSchoolsNearFacility(facility.locationName, facility.lat, facility.lng);
-      storage.addActivity({ type: "school_scan", facilityId: facility.id, message: `School discovery started for ${facility.locationName}`, count: null });
+      storage.addActivity({ type: "school_scan", facilityId: facility.id, message: `Full athlete discovery started for ${facility.locationName}`, count: null });
       res.json(run);
     } catch(err: any) { res.status(500).json({ error: err.message }); }
   });
@@ -334,6 +381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (updates.notes !== undefined) snakeUpdates.notes = updates.notes;
     if (updates.assignedRep !== undefined) snakeUpdates.assigned_rep = updates.assignedRep;
     if (updates.location !== undefined) snakeUpdates.location = updates.location;
+    if (updates.dateBooked !== undefined) snakeUpdates.date_booked = updates.dateBooked;
     if (updates.evalDate !== undefined) snakeUpdates.eval_date = updates.evalDate;
     if (updates.evalTime !== undefined) snakeUpdates.eval_time = updates.evalTime;
     if (updates.leadName !== undefined) snakeUpdates.lead_name = updates.leadName;
@@ -343,12 +391,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await sbBookings.update(id, snakeUpdates);
       res.json(result);
     } catch {
-      const { db } = await import("./db");
-      const { sql: drizzleSql, eq } = await import("drizzle-orm");
-      const setClauses = Object.entries(snakeUpdates).map(([k, v]) => `${k} = '${v}'`).join(", ");
+      const Database = (await import("better-sqlite3")).default;
+      const path = (await import("path")).default;
+      const db = new Database(path.join(process.cwd(), "gradum.db"));
+      const setClauses = Object.entries(snakeUpdates)
+        .map(([k]) => `${k} = ?`)
+        .join(", ");
+      const values = Object.values(snakeUpdates);
       if (setClauses) {
-        db.run(drizzleSql.raw(`UPDATE bookings SET ${setClauses} WHERE id = ${id}`));
+        db.prepare(`UPDATE bookings SET ${setClauses} WHERE id = ?`).run(...values, id);
       }
+      db.close();
       res.json({ id, ...updates });
     }
   });
@@ -525,6 +578,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // ─── REP STATS ───────────────────────────────────────────────────────────────
+  app.get("/api/sales/rep-stats", async (req, res) => {
+    try {
+      const Database = (await import("better-sqlite3")).default;
+      const path = (await import("path")).default;
+      const db = new Database(path.join(process.cwd(), "gradum.db"));
+      const rows = db.prepare(`
+        SELECT 
+          assigned_rep,
+          COUNT(*) as booked,
+          SUM(CASE WHEN show_status = 'show' THEN 1 ELSE 0 END) as shows,
+          SUM(CASE WHEN close_status = 'close' THEN 1 ELSE 0 END) as closes,
+          SUM(CASE WHEN close_status = 'no_sale' THEN 1 ELSE 0 END) as no_sales,
+          SUM(CASE WHEN show_status = 'no_show' OR show_status = 'cancel' THEN 1 ELSE 0 END) as cancels,
+          SUM(CASE WHEN revenue IS NOT NULL THEN revenue ELSE 0 END) as revenue
+        FROM bookings
+        WHERE assigned_rep IS NOT NULL AND assigned_rep != ''
+        GROUP BY assigned_rep
+        ORDER BY booked DESC
+      `).all() as any[];
+      db.close();
+      res.json(rows.map(r => ({
+        rep: r.assigned_rep,
+        booked: r.booked,
+        shows: r.shows,
+        closes: r.closes,
+        noSales: r.no_sales,
+        cancels: r.cancels,
+        revenue: parseFloat(r.revenue) || 0,
+        showRate: r.booked > 0 ? Math.round((r.shows / r.booked) * 100) : 0,
+        closeRate: r.shows > 0 ? Math.round((r.closes / r.shows) * 100) : 0,
+      })));
+    } catch(err: any) { res.status(500).json({ error: err.message }); }
   });
 
   const httpServer = createServer(app);
