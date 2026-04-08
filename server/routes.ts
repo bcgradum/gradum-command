@@ -260,6 +260,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch(err: any) { res.status(500).json({ error: err.message }); }
   });
 
+
+
   app.patch("/api/athletes/:id/ig", async (req, res) => {
     const id = Number(req.params.id);
     const { handleStatus, ...rest } = req.body;
@@ -307,6 +309,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const byNumber = allFacs.find((f: any) => f.facilityNumber === resolvedFacilityId);
             if (byNumber) {
               resolvedFacilityId = byNumber.id;
+            } else {
+              // Not a facilityNumber — check if it's already a valid internal id
+              const byId = allFacs.find((f: any) => f.id === resolvedFacilityId);
+              // If neither matches, keep original (best-effort)
             }
           } catch {
             // Supabase down — SQLite fallback for facility lookup
@@ -377,6 +383,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: err.message });
     }
   });
+
+
 
   // ─── ACTIVITY LOG ───────────────────────────────────────────────────────────────────────────────────
   app.get("/api/activity", async (_req, res) => {
@@ -818,3 +826,4 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   return httpServer;
 }
+
