@@ -163,6 +163,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/athletes — import a new athlete (used by Make.com Google Sheets sync)
+  // Supabase = primary (persists across deploys). SQLite = local cache.
   // Accepts either internal facility `id` or `facilityNumber` in nearestFacilityId — auto-resolves.
   app.post("/api/athletes", async (req, res) => {
     const { firstName, lastName, fullName, gradYear, schoolName, travelTeam, city, state, position, sport, igHandle, igConfidence, nearestFacilityId, nearestIgAccount, sources } = req.body;
@@ -170,33 +171,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const now = new Date().toISOString();
     const fn = firstName || fullName.split(" ")[0];
     const ln = lastName || fullName.split(" ").slice(1).join(" ");
+    const name = fullName || `${fn} ${ln}`;
     const igStatus = igHandle ? "matched" : "not_searched";
-    try {
-      const Database = (await import("better-sqlite3")).default;
-      const path = (await import("path")).default;
-      const db = new Database(path.join(process.cwd(), "gradum.db"));
 
+    try {
       // ── Resolve facility ID: accept either internal `id` or `facilityNumber` ──
       let resolvedFacilityId = nearestFacilityId ? Number(nearestFacilityId) : null;
       if (resolvedFacilityId) {
-        const byId = db.prepare("SELECT id FROM facilities WHERE id = ?").get(resolvedFacilityId) as any;
-        if (!byId) {
-          // Not a valid internal id — check if it's a facilityNumber
-          const byNumber = db.prepare("SELECT id FROM facilities WHERE facility_number = ?").get(resolvedFacilityId) as any;
-          if (byNumber) resolvedFacilityId = byNumber.id;
-          // If neither matches, keep the original value (best-effort)
+        try {
+          // Check Supabase facilities first
+          const sbFac = await sbFacilities.getById(resolvedFacilityId);
+          if (!sbFac) {
+            // Not a valid internal id — check all facilities for matching facilityNumber
+            const allFacs = await sbFacilities.getAll();
+            const byNumber = allFacs.find((f: any) => f.facilityNumber === resolvedFacilityId);
+            if (byNumber) resolvedFacilityId = byNumber.id;
+          }
+        } catch {
+          // Supabase down — fall back to SQLite facility lookup
+          const Database = (await import("better-sqlite3")).default;
+          const path = (await import("path")).default;
+          const tmpDb = new Database(path.join(process.cwd(), "gradum.db"));
+          const byId = tmpDb.prepare("SELECT id FROM facilities WHERE id = ?").get(resolvedFacilityId) as any;
+          if (!byId) {
+            const byNumber = tmpDb.prepare("SELECT id FROM facilities WHERE facility_number = ?").get(resolvedFacilityId) as any;
+            if (byNumber) resolvedFacilityId = byNumber.id;
+          }
+          tmpDb.close();
         }
       }
 
-      const existing = db.prepare("SELECT id FROM athletes WHERE LOWER(full_name)=? AND grad_year=?").get((fullName || `${fn} ${ln}`).toLowerCase(), gradYear);
-      if (existing) { db.close(); return res.json({ id: (existing as any).id, duplicate: true }); }
-      const result = db.prepare(`INSERT INTO athletes (first_name,last_name,full_name,grad_year,school_name,travel_team,city,state,position,sport,sources,ig_status,ig_handle,ig_confidence,nearest_facility_id,nearest_ig_account,priority_score,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-        .run(fn, ln, fullName || `${fn} ${ln}`, gradYear, schoolName, travelTeam, city, state, position, sport || "baseball", JSON.stringify(sources || ["Make.com"]), igStatus, igHandle || null, igConfidence || null, resolvedFacilityId, nearestIgAccount || null, 70, now, now);
-      if (resolvedFacilityId) {
-        db.prepare("INSERT OR IGNORE INTO facility_athletes (facility_id,athlete_id,zone,is_nearest,added_at) VALUES (?,?,'primary',1,?)").run(resolvedFacilityId, result.lastInsertRowid, now);
+      // ── Dedup check: Supabase first, SQLite fallback ──
+      let existingId: number | null = null;
+      try {
+        const sbExisting = await sbAthletes.getAll({ "full_name": `ilike.${name}`, "grad_year": `eq.${gradYear}` });
+        if (sbExisting.length > 0) existingId = sbExisting[0].id;
+      } catch {
+        // Supabase down — check SQLite
+        const Database = (await import("better-sqlite3")).default;
+        const path = (await import("path")).default;
+        const tmpDb = new Database(path.join(process.cwd(), "gradum.db"));
+        const row = tmpDb.prepare("SELECT id FROM athletes WHERE LOWER(full_name)=? AND grad_year=?").get(name.toLowerCase(), gradYear) as any;
+        if (row) existingId = row.id;
+        tmpDb.close();
       }
-      db.close();
-      res.json({ id: result.lastInsertRowid, created: true });
+      if (existingId) return res.json({ id: existingId, duplicate: true });
+
+      // ── Insert into Supabase (primary — survives deploys) ──
+      const sbData = {
+        first_name: fn, last_name: ln, full_name: name,
+        grad_year: gradYear, school_name: schoolName || null, travel_team: travelTeam || null,
+        city: city || null, state: state || null, position: position || null,
+        sport: sport || "baseball", sources: JSON.stringify(sources || ["Make.com"]),
+        ig_status: igStatus, ig_handle: igHandle || null, ig_confidence: igConfidence || null,
+        nearest_facility_id: resolvedFacilityId, nearest_ig_account: nearestIgAccount || null,
+        priority_score: 70, created_at: now, updated_at: now,
+      };
+      let newId: number | null = null;
+      try {
+        const sbResult = await sbAthletes.insert(sbData);
+        const inserted = Array.isArray(sbResult) ? sbResult[0] : sbResult;
+        newId = inserted?.id ?? null;
+      } catch (sbErr: any) {
+        console.error("Supabase insert failed:", sbErr.message);
+      }
+
+      // ── Also insert into SQLite (local cache) ──
+      try {
+        const Database = (await import("better-sqlite3")).default;
+        const path = (await import("path")).default;
+        const db = new Database(path.join(process.cwd(), "gradum.db"));
+        const result = db.prepare(`INSERT INTO athletes (first_name,last_name,full_name,grad_year,school_name,travel_team,city,state,position,sport,sources,ig_status,ig_handle,ig_confidence,nearest_facility_id,nearest_ig_account,priority_score,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+          .run(fn, ln, name, gradYear, schoolName, travelTeam, city, state, position, sport || "baseball", JSON.stringify(sources || ["Make.com"]), igStatus, igHandle || null, igConfidence || null, resolvedFacilityId, nearestIgAccount || null, 70, now, now);
+        if (resolvedFacilityId) {
+          db.prepare("INSERT OR IGNORE INTO facility_athletes (facility_id,athlete_id,zone,is_nearest,added_at) VALUES (?,?,'primary',1,?)").run(resolvedFacilityId, result.lastInsertRowid, now);
+        }
+        if (!newId) newId = Number(result.lastInsertRowid);
+        db.close();
+      } catch (sqlErr: any) {
+        console.error("SQLite insert failed:", sqlErr.message);
+      }
+
+      if (!newId) return res.status(500).json({ error: "Both Supabase and SQLite inserts failed" });
+      res.json({ id: newId, created: true });
     } catch(err: any) { res.status(500).json({ error: err.message }); }
   });
 
@@ -216,85 +273,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(updated || { id, ...req.body });
   });
 
-  // PATCH /api/athletes/:id — update any athlete fields + re-link facility if changed
+  // PATCH /api/athletes/:id — update any athlete fields
+  // Supabase = primary (persists across deploys). SQLite = local cache.
   // Accepts either internal facility `id` or `facilityNumber` in nearestFacilityId — auto-resolves.
   app.patch("/api/athletes/:id", async (req, res) => {
     const athleteId = Number(req.params.id);
     if (isNaN(athleteId)) return res.status(400).json({ error: "Invalid athlete ID" });
 
+    const { nearestFacilityId, ...rest } = req.body;
+    const now = new Date().toISOString();
+
+    const fieldMap: Record<string, string> = {
+      fullName: "full_name", firstName: "first_name", lastName: "last_name",
+      gradYear: "grad_year", schoolName: "school_name", travelTeam: "travel_team",
+      city: "city", state: "state", position: "position", sport: "sport",
+      igHandle: "ig_handle", igConfidence: "ig_confidence", igStatus: "ig_status",
+      igVerificationNotes: "ig_verification_notes", igSourceStrategy: "ig_source_strategy",
+      nearestIgAccount: "nearest_ig_account", sources: "sources", priorityScore: "priority_score",
+    };
+
     try {
-      const Database = (await import("better-sqlite3")).default;
-      const path = (await import("path")).default;
-      const db = new Database(path.join(process.cwd(), "gradum.db"));
-
-      // Verify athlete exists
-      const existing = db.prepare("SELECT * FROM athletes WHERE id = ?").get(athleteId) as any;
-      if (!existing) { db.close(); return res.status(404).json({ error: "Athlete not found" }); }
-
-      const { nearestFacilityId, ...rest } = req.body;
-      const now = new Date().toISOString();
-
-      // ── Build dynamic UPDATE for the athletes table ──
-      const fieldMap: Record<string, string> = {
-        fullName: "full_name", firstName: "first_name", lastName: "last_name",
-        gradYear: "grad_year", schoolName: "school_name", travelTeam: "travel_team",
-        city: "city", state: "state", position: "position", sport: "sport",
-        igHandle: "ig_handle", igConfidence: "ig_confidence", igStatus: "ig_status",
-        igVerificationNotes: "ig_verification_notes", igSourceStrategy: "ig_source_strategy",
-        nearestIgAccount: "nearest_ig_account", sources: "sources", priorityScore: "priority_score",
-      };
-
-      const setClauses: string[] = ["updated_at = ?"];
-      const values: any[] = [now];
-
-      for (const [camel, snake] of Object.entries(fieldMap)) {
-        if (rest[camel] !== undefined) {
-          setClauses.push(`${snake} = ?`);
-          values.push(camel === "sources" ? JSON.stringify(rest[camel]) : rest[camel]);
-        }
-      }
-
       // ── Resolve facility ID if provided ──
       let resolvedFacilityId: number | null = null;
       if (nearestFacilityId !== undefined) {
         resolvedFacilityId = nearestFacilityId ? Number(nearestFacilityId) : null;
         if (resolvedFacilityId) {
-          const byId = db.prepare("SELECT id FROM facilities WHERE id = ?").get(resolvedFacilityId) as any;
-          if (!byId) {
-            const byNumber = db.prepare("SELECT id FROM facilities WHERE facility_number = ?").get(resolvedFacilityId) as any;
-            if (byNumber) resolvedFacilityId = byNumber.id;
+          try {
+            const sbFac = await sbFacilities.getById(resolvedFacilityId);
+            if (!sbFac) {
+              const allFacs = await sbFacilities.getAll();
+              const byNumber = allFacs.find((f: any) => f.facilityNumber === resolvedFacilityId);
+              if (byNumber) resolvedFacilityId = byNumber.id;
+            }
+          } catch {
+            // Supabase down — SQLite fallback for facility lookup
+            const Database = (await import("better-sqlite3")).default;
+            const path = (await import("path")).default;
+            const tmpDb = new Database(path.join(process.cwd(), "gradum.db"));
+            const byId = tmpDb.prepare("SELECT id FROM facilities WHERE id = ?").get(resolvedFacilityId) as any;
+            if (!byId) {
+              const byNumber = tmpDb.prepare("SELECT id FROM facilities WHERE facility_number = ?").get(resolvedFacilityId) as any;
+              if (byNumber) resolvedFacilityId = byNumber.id;
+            }
+            tmpDb.close();
           }
         }
-        setClauses.push("nearest_facility_id = ?");
-        values.push(resolvedFacilityId);
       }
 
-      // Run the UPDATE
-      values.push(athleteId);
-      db.prepare(`UPDATE athletes SET ${setClauses.join(", ")} WHERE id = ?`).run(...values);
-
-      // ── Update facility_athletes junction table if facility changed ──
-      if (resolvedFacilityId !== null && resolvedFacilityId !== existing.nearest_facility_id) {
-        // Remove old facility link(s)
-        db.prepare("DELETE FROM facility_athletes WHERE athlete_id = ?").run(athleteId);
-        // Insert new link
-        db.prepare("INSERT OR IGNORE INTO facility_athletes (facility_id, athlete_id, zone, is_nearest, added_at) VALUES (?, ?, 'primary', 1, ?)").run(resolvedFacilityId, athleteId, now);
+      // ── Build Supabase update payload (snake_case) ──
+      const sbUpdate: any = { updated_at: now };
+      for (const [camel, snake] of Object.entries(fieldMap)) {
+        if (rest[camel] !== undefined) sbUpdate[snake] = rest[camel];
       }
+      if (resolvedFacilityId !== null) sbUpdate.nearest_facility_id = resolvedFacilityId;
 
-      const updated = db.prepare("SELECT * FROM athletes WHERE id = ?").get(athleteId);
-      db.close();
-
-      // Also update Supabase (best-effort)
+      // ── Update Supabase (primary) ──
+      let updated: any = null;
       try {
-        const sbUpdate: any = {};
-        for (const [camel, snake] of Object.entries(fieldMap)) {
-          if (rest[camel] !== undefined) sbUpdate[snake] = rest[camel];
-        }
-        if (resolvedFacilityId !== null) sbUpdate.nearest_facility_id = resolvedFacilityId;
-        sbUpdate.updated_at = now;
-        await sbAthletes.update(athleteId, sbUpdate);
-      } catch { /* Supabase fallback — SQLite is source of truth */ }
+        const sbResult = await sbAthletes.update(athleteId, sbUpdate);
+        updated = Array.isArray(sbResult) ? sbResult[0] : sbResult;
+      } catch (sbErr: any) {
+        console.error("Supabase PATCH failed:", sbErr.message);
+      }
 
+      // ── Also update SQLite (local cache) ──
+      try {
+        const Database = (await import("better-sqlite3")).default;
+        const path = (await import("path")).default;
+        const db = new Database(path.join(process.cwd(), "gradum.db"));
+
+        const existing = db.prepare("SELECT * FROM athletes WHERE id = ?").get(athleteId) as any;
+        if (existing) {
+          const setClauses: string[] = ["updated_at = ?"];
+          const values: any[] = [now];
+          for (const [camel, snake] of Object.entries(fieldMap)) {
+            if (rest[camel] !== undefined) {
+              setClauses.push(`${snake} = ?`);
+              values.push(camel === "sources" ? JSON.stringify(rest[camel]) : rest[camel]);
+            }
+          }
+          if (resolvedFacilityId !== null) { setClauses.push("nearest_facility_id = ?"); values.push(resolvedFacilityId); }
+          values.push(athleteId);
+          db.prepare(`UPDATE athletes SET ${setClauses.join(", ")} WHERE id = ?`).run(...values);
+
+          // Update junction table if facility changed
+          if (resolvedFacilityId !== null && resolvedFacilityId !== existing.nearest_facility_id) {
+            db.prepare("DELETE FROM facility_athletes WHERE athlete_id = ?").run(athleteId);
+            db.prepare("INSERT OR IGNORE INTO facility_athletes (facility_id, athlete_id, zone, is_nearest, added_at) VALUES (?, ?, 'primary', 1, ?)").run(resolvedFacilityId, athleteId, now);
+          }
+          if (!updated) updated = db.prepare("SELECT * FROM athletes WHERE id = ?").get(athleteId);
+        }
+        db.close();
+      } catch (sqlErr: any) {
+        console.error("SQLite PATCH failed:", sqlErr.message);
+      }
+
+      if (!updated) return res.status(404).json({ error: "Athlete not found" });
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
