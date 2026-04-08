@@ -179,24 +179,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let resolvedFacilityId = nearestFacilityId ? Number(nearestFacilityId) : null;
       if (resolvedFacilityId) {
         try {
-          // Check Supabase facilities first
-          const sbFac = await sbFacilities.getById(resolvedFacilityId);
-          if (!sbFac) {
-            // Not a valid internal id — check all facilities for matching facilityNumber
-            const allFacs = await sbFacilities.getAll();
-            const byNumber = allFacs.find((f: any) => f.facilityNumber === resolvedFacilityId);
-            if (byNumber) resolvedFacilityId = byNumber.id;
+          // Check facilityNumber FIRST (that's what the pipeline sends), then fall back to internal id
+          const allFacs = await sbFacilities.getAll();
+          const byNumber = allFacs.find((f: any) => f.facilityNumber === resolvedFacilityId);
+          if (byNumber) {
+            resolvedFacilityId = byNumber.id;
+          } else {
+            // Not a facilityNumber — check if it's already a valid internal id
+            const byId = allFacs.find((f: any) => f.id === resolvedFacilityId);
+            // If neither matches, keep original (best-effort)
           }
         } catch {
           // Supabase down — fall back to SQLite facility lookup
           const Database = (await import("better-sqlite3")).default;
           const path = (await import("path")).default;
           const tmpDb = new Database(path.join(process.cwd(), "gradum.db"));
-          const byId = tmpDb.prepare("SELECT id FROM facilities WHERE id = ?").get(resolvedFacilityId) as any;
-          if (!byId) {
-            const byNumber = tmpDb.prepare("SELECT id FROM facilities WHERE facility_number = ?").get(resolvedFacilityId) as any;
-            if (byNumber) resolvedFacilityId = byNumber.id;
+          // Check facilityNumber FIRST (that's what the pipeline sends)
+          const byNumber = tmpDb.prepare("SELECT id FROM facilities WHERE facility_number = ?").get(resolvedFacilityId) as any;
+          if (byNumber) {
+            resolvedFacilityId = byNumber.id;
           }
+          // If no facilityNumber match, assume it's already an internal id
           tmpDb.close();
         }
       }
@@ -299,21 +302,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         resolvedFacilityId = nearestFacilityId ? Number(nearestFacilityId) : null;
         if (resolvedFacilityId) {
           try {
-            const sbFac = await sbFacilities.getById(resolvedFacilityId);
-            if (!sbFac) {
-              const allFacs = await sbFacilities.getAll();
-              const byNumber = allFacs.find((f: any) => f.facilityNumber === resolvedFacilityId);
-              if (byNumber) resolvedFacilityId = byNumber.id;
+            // Check facilityNumber FIRST (that's what the pipeline sends), then fall back to internal id
+            const allFacs = await sbFacilities.getAll();
+            const byNumber = allFacs.find((f: any) => f.facilityNumber === resolvedFacilityId);
+            if (byNumber) {
+              resolvedFacilityId = byNumber.id;
             }
           } catch {
             // Supabase down — SQLite fallback for facility lookup
             const Database = (await import("better-sqlite3")).default;
             const path = (await import("path")).default;
             const tmpDb = new Database(path.join(process.cwd(), "gradum.db"));
-            const byId = tmpDb.prepare("SELECT id FROM facilities WHERE id = ?").get(resolvedFacilityId) as any;
-            if (!byId) {
-              const byNumber = tmpDb.prepare("SELECT id FROM facilities WHERE facility_number = ?").get(resolvedFacilityId) as any;
-              if (byNumber) resolvedFacilityId = byNumber.id;
+            // Check facilityNumber FIRST (that's what the pipeline sends)
+            const byNumber = tmpDb.prepare("SELECT id FROM facilities WHERE facility_number = ?").get(resolvedFacilityId) as any;
+            if (byNumber) {
+              resolvedFacilityId = byNumber.id;
             }
             tmpDb.close();
           }
