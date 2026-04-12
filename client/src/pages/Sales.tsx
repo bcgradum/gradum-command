@@ -9,6 +9,7 @@ import Sidebar from "@/components/command/Sidebar";
 // Matches exact location names stored in the bookings database
 const FACILITIES = [
   "Austin", "Broward", "Carrollton", "Cary", "Charleston", "Charlotte",
+  // cache-bust build v2
   "Fort Myers", "Fort Worth", "Frisco", "Houston", "Jacksonville", "Jupiter",
   "Nocatee", "Port Saint Lucie", "South Charlotte", "South Miami",
   "Spring", "Tampa", "Wake Forest", "Wesley Chapel", "Winter Garden",
