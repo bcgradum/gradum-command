@@ -229,9 +229,10 @@ export const sbFollowups = {
 };
 
 export async function sbGetDashboardStats() {
-  const [athletes, matched, activity] = await Promise.all([
+  const [athletes, matched, done, activity] = await Promise.all([
     sb("/athletes?select=id,state"),
     sb("/athletes?ig_confidence=gte.60&select=id"),
+    sb("/athletes?handle_status=eq.confirmed&select=id"),
     sbActivity.getRecent(undefined, 20),
   ]);
 
@@ -249,7 +250,7 @@ export async function sbGetDashboardStats() {
     totalAthletes: athletes.length,
     totalMatched: matched.length,
     matchRate: athletes.length > 0 ? Math.round((matched.length / athletes.length) * 100) : 0,
-    totalSchools: 0, // will add schools table later
+    totalDone: done.length,
     byState: stateArr,
     recentActivity: activity,
   };

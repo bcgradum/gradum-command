@@ -50,7 +50,7 @@ export interface DashboardStats {
   totalAthletes: number;
   totalMatched: number;
   matchRate: number;
-  totalSchools: number;
+  totalDone: number;
   byState: { state: string; count: number }[];
   recentActivity: ActivityLog[];
 }
@@ -219,7 +219,8 @@ export class Storage implements IStorage {
     const totalAthletes = db.select({ count: count() }).from(athletes).get()?.count ?? 0;
     const totalMatched = db.select({ count: count() }).from(athletes)
       .where(sql`${athletes.igConfidence} >= 60`).get()?.count ?? 0;
-    const totalSchools = db.select({ count: count() }).from(schools).get()?.count ?? 0;
+    const totalDone = db.select({ count: count() }).from(athletes)
+      .where(eq(athletes.handleStatus, "confirmed")).get()?.count ?? 0;
 
     // Athletes by state
     const byState = db.select({ state: athletes.state, count: count() })
@@ -236,7 +237,7 @@ export class Storage implements IStorage {
       totalAthletes,
       totalMatched,
       matchRate: totalAthletes > 0 ? Math.round((totalMatched / totalAthletes) * 100) : 0,
-      totalSchools,
+      totalDone,
       byState,
       recentActivity,
     };

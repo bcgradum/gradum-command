@@ -7,7 +7,7 @@ interface DashboardStats {
   totalAthletes: number;
   totalMatched: number;
   matchRate: number;
-  totalSchools: number;
+  totalDone: number;
   byState: { state: string; count: number }[];
   recentActivity: ActivityLog[];
 }
@@ -213,7 +213,7 @@ export default function Dashboard() {
             <StatCard label="Total Athletes" value={(stats?.totalAthletes ?? 0).toLocaleString()} sub="across all facilities" color="hsl(210, 15%, 88%)" />
             <StatCard label="IG Matched" value={(stats?.totalMatched ?? 0).toLocaleString()} sub="confidence 60+" color="var(--color-cyan)" />
             <StatCard label="Match Rate" value={`${stats?.matchRate ?? 0}%`} sub="network average" color={stats?.matchRate && stats.matchRate >= 80 ? "var(--color-green)" : "var(--color-amber)"} />
-            <StatCard label="Schools Mapped" value={(stats?.totalSchools ?? 0).toLocaleString()} sub="verified programs" />
+            <StatCard label="Marked Done" value={(stats?.totalDone ?? 0).toLocaleString()} sub="confirmed by team" color="var(--color-green)" />
           </div>
 
           <div className="grid grid-cols-3 gap-6">
