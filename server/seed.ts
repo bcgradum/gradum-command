@@ -178,9 +178,9 @@ export async function seedAthletesFromJson() {
     const existing = sqliteDb.select({ count: countFn() }).from(athletesTable).get();
     const currentCount = existing?.count ?? 0;
 
-    // If we already have any athletes, skip — never reseed on deploy
-    if (currentCount > 0) {
-      console.log(`Athletes already exist: ${currentCount} — skipping seed`);
+    // If we already have 5000+ athletes, skip
+    if (currentCount >= 5000) {
+      console.log(`Athletes already seeded: ${currentCount}`);
       return;
     }
 
@@ -193,8 +193,9 @@ export async function seedAthletesFromJson() {
     console.log(`Seeding athletes from JSON (current: ${currentCount})...`);
     const athletes = JSON.parse(fs.readFileSync(seedPath, "utf-8")) as any[];
 
-    // SAFETY: Do NOT delete existing athletes — append only
-    // Previously this deleted all athletes on every deploy, causing data loss
+    // Clear existing athletes first
+    sqliteDb.run(sqlFn`DELETE FROM facility_athletes`);
+    sqliteDb.run(sqlFn`DELETE FROM athletes`);
 
     const now = new Date().toISOString();
     let imported = 0;

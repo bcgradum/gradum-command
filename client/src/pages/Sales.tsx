@@ -9,7 +9,6 @@ import Sidebar from "@/components/command/Sidebar";
 // Matches exact location names stored in the bookings database
 const FACILITIES = [
   "Austin", "Broward", "Carrollton", "Cary", "Charleston", "Charlotte",
-  // cache-bust build v2
   "Fort Myers", "Fort Worth", "Frisco", "Houston", "Jacksonville", "Jupiter",
   "Nocatee", "Port Saint Lucie", "South Charlotte", "South Miami",
   "Spring", "Tampa", "Wake Forest", "Wesley Chapel", "Winter Garden",
@@ -54,9 +53,8 @@ interface SalesStats {
   no_sales: number;
   reschedules: number;
   cancels: number;
-  revenue: number;
   tba: number;
-  pending: number;
+  revenue: number;
   by_location: {
     location: string;
     booked: number;
@@ -790,11 +788,17 @@ function NewFollowupModal({ onClose, onSuccess }: { onClose: () => void; onSucce
 
 function daysAgo(dateStr: string | undefined | null): number | null {
   if (!dateStr) return null;
+  let parsed: Date;
+  // Handle MM/DD/YYYY format
   const parts = dateStr.split("/");
-  if (parts.length !== 3) return null;
-  const evalDate = new Date(`${parts[2]}-${parts[0].padStart(2, "0")}-${parts[1].padStart(2, "0")}`);
-  if (isNaN(evalDate.getTime())) return null;
-  const diff = Math.floor((Date.now() - evalDate.getTime()) / (1000 * 60 * 60 * 24));
+  if (parts.length === 3) {
+    parsed = new Date(`${parts[2]}-${parts[0].padStart(2, "0")}-${parts[1].padStart(2, "0")}`);
+  } else {
+    // Handle ISO format (e.g. 2026-04-12T16:51:26Z)
+    parsed = new Date(dateStr);
+  }
+  if (isNaN(parsed.getTime())) return null;
+  const diff = Math.floor((Date.now() - parsed.getTime()) / (1000 * 60 * 60 * 24));
   return diff >= 0 ? diff : null;
 }
 
@@ -805,27 +809,6 @@ function DaysAgoBadge({ dateStr }: { dateStr: string | undefined | null }) {
   if (days === 0) color = "#2cba6e";       // green = today
   else if (days <= 30) color = "#f59e0b";  // amber = 1-30 days
   else color = "#f45c6b";                  // red = 31+ days
-  return (
-    <span style={{
-      display: "inline-block", padding: "2px 7px", borderRadius: 4,
-      fontSize: 11, fontWeight: 600, fontFamily: "var(--font-mono, monospace)",
-      color, background: `${color}18`,
-    }}>
-      {days === 0 ? "Today" : `${days}d ago`}
-    </span>
-  );
-}
-
-function DaysAgoBadgeISO({ dateStr }: { dateStr: string | undefined | null }) {
-  if (!dateStr) return <span style={{ color: "hsl(210,10%,35%)", fontFamily: "var(--font-mono)", fontSize: 12 }}>—</span>;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return <span style={{ color: "hsl(210,10%,35%)", fontFamily: "var(--font-mono)", fontSize: 12 }}>—</span>;
-  const days = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
-  if (days < 0) return <span style={{ color: "hsl(210,10%,35%)", fontFamily: "var(--font-mono)", fontSize: 12 }}>—</span>;
-  let color: string;
-  if (days === 0) color = "#2cba6e";
-  else if (days <= 30) color = "#f59e0b";
-  else color = "#f45c6b";
   return (
     <span style={{
       display: "inline-block", padding: "2px 7px", borderRadius: 4,
@@ -900,8 +883,7 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
   const monoTd: React.CSSProperties = { ...tdStyle, fontFamily: S.mono };
 
   // Column count for empty state
-  const showDaysAgoCol = noSaleOnly || rescheduleOnly;
-  const colCount = isAdmin ? (showDaysAgoCol ? 12 : 11) : (showDaysAgoCol ? 9 : 8);
+  const colCount = isAdmin ? ((noSaleOnly || rescheduleOnly) ? 12 : 11) : ((noSaleOnly || rescheduleOnly) ? 9 : 8);
 
   return (
     <div>
@@ -962,14 +944,13 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
         <button
           onClick={() => { setRescheduleOnly(!rescheduleOnly); if (!rescheduleOnly) setNoSaleOnly(false); }}
           style={{
-            background: rescheduleOnly ? "rgba(234,179,8,0.15)" : "transparent",
-            color: rescheduleOnly ? "#eab308" : S.textMuted,
-            border: `1px solid ${rescheduleOnly ? "#eab308" : S.border}`,
+            background: rescheduleOnly ? "rgba(245,158,11,0.15)" : "transparent",
+            color: rescheduleOnly ? S.amber : S.textMuted,
+            border: `1px solid ${rescheduleOnly ? S.amber : S.border}`,
             borderRadius: 8, padding: "7px 14px", fontSize: 12,
             cursor: "pointer", fontWeight: rescheduleOnly ? 700 : 400,
             display: "flex", alignItems: "center", gap: 6,
           }}
-          data-testid="button-reschedule-filter"
         >
           {rescheduleOnly ? "✕ " : ""}Reschedule Follow-Ups
           {rescheduleOnly && <span style={{ fontSize: 10 }}>({sortedBookings.filter(b => b.showStatus === "reschedule").length})</span>}
@@ -996,8 +977,8 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
                 <th style={thStyle}>Rep</th>
                 <th style={thStyle}>Eval Date</th>
                 <th style={thStyle}>Time</th>
-                {/* Days Ago column — when noSaleOnly or rescheduleOnly */}
-                {showDaysAgoCol && <th style={thStyle}>Days Ago</th>}
+                {/* Days Ago column — only when noSaleOnly (Change 6) */}
+                {(noSaleOnly || rescheduleOnly) && <th style={thStyle}>Days Ago</th>}
                 {isAdmin && <th style={thStyle}>Show</th>}
                 {isAdmin && <th style={thStyle}>Close</th>}
                 {isAdmin && <th style={{ ...thStyle, textAlign: "right" }}>Revenue</th>}
@@ -1038,7 +1019,7 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
                   <td style={monoTd}>{b.evalDate}</td>
                   <td style={{ ...monoTd, color: S.textMuted }}>{b.evalTime}</td>
                   {/* Days Ago cell — when noSaleOnly or rescheduleOnly */}
-                  {showDaysAgoCol && (
+                  {(noSaleOnly || rescheduleOnly) && (
                     <td style={tdStyle}>
                       <DaysAgoBadge dateStr={b.evalDate} />
                     </td>
@@ -1218,7 +1199,7 @@ function FollowUpsTab() {
                   <td style={{ ...tdStyle, fontFamily: S.mono }}>@{f.igUsername.replace(/^@/, "")}</td>
                   <td style={{ ...tdStyle, color: S.textMuted }}>{f.assignedRep || "—"}</td>
                   <td style={{ ...tdStyle, fontFamily: S.mono, color: S.textMuted, fontSize: 12 }}>{f.date}</td>
-                  <td style={tdStyle}><DaysAgoBadgeISO dateStr={f.createdAt} /></td>
+                  <td style={tdStyle}><DaysAgoBadge dateStr={f.createdAt} /></td>
                   <td style={tdStyle}><StatusBadge status={f.status} /></td>
                   <td style={{ ...tdStyle, color: S.textMuted, maxWidth: 200 }}>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{f.notes || "—"}</span>
