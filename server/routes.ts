@@ -808,39 +808,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ─── REP STATS ───────────────────────────────────────────────────────────────
   app.get("/api/sales/rep-stats", async (req, res) => {
+    const period = String(req.query.period || "all");
     try {
-      const Database = (await import("better-sqlite3")).default;
-      const path = (await import("path")).default;
-      const db = new Database(path.join(process.cwd(), "gradum.db"));
-      const rows = db.prepare(`
-        SELECT 
-          assigned_rep,
-          COUNT(*) as booked,
-          SUM(CASE WHEN show_status = 'show' THEN 1 ELSE 0 END) as shows,
-          SUM(CASE WHEN close_status = 'close' THEN 1 ELSE 0 END) as closes,
-          SUM(CASE WHEN close_status = 'no_sale' THEN 1 ELSE 0 END) as no_sales,
-          SUM(CASE WHEN show_status = 'no_show' OR show_status = 'cancel' THEN 1 ELSE 0 END) as cancels,
-          SUM(CASE WHEN show_status IN ('tba', 'reschedule') THEN 1 ELSE 0 END) as excluded,
-          SUM(CASE WHEN revenue IS NOT NULL THEN revenue ELSE 0 END) as revenue
-        FROM bookings
-        WHERE assigned_rep IS NOT NULL AND assigned_rep != ''
-        GROUP BY assigned_rep
-        ORDER BY booked DESC
-      `).all() as any[];
-      db.close();
-      res.json(rows.map(r => {
-        const showDenom = r.booked - (r.excluded || 0);
+      // Fetch all bookings from Supabase (same source as /api/sales/stats)
+      let allBookings: any[];
+      try {
+        allBookings = await sbBookings.getAll();
+      } catch {
+        const Database = (await import("better-sqlite3")).default;
+        const path = (await import("path")).default;
+        const sqliteDb = new Database(path.join(process.cwd(), "gradum.db"));
+        const rawRows = sqliteDb.prepare("SELECT * FROM bookings ORDER BY date_booked DESC").all() as any[];
+        sqliteDb.close();
+        allBookings = rawRows.map((b: any) => ({
+          id: b.id, location: b.location, dateBooked: b.date_booked,
+          evalDate: b.eval_date, showStatus: b.show_status, closeStatus: b.close_status,
+          revenue: b.revenue, assignedRep: b.assigned_rep, notes: b.notes, createdAt: b.created_at,
+        }));
+      }
+
+      // Period filter — same logic as /api/sales/stats
+      const now = new Date();
+      const filtered = allBookings.filter((b: any) => {
+        const rawDate = b.dateBooked || b.date_booked || "";
+        if (!rawDate) return period === "all";
+        let bookingDate: Date;
+        try {
+          const parts = rawDate.split("/");
+          if (parts.length === 3) {
+            bookingDate = new Date(`${parts[2]}-${parts[0].padStart(2,"0")}-${parts[1].padStart(2,"0")}`);
+          } else {
+            bookingDate = new Date(rawDate);
+          }
+          if (isNaN(bookingDate.getTime())) return period === "all";
+        } catch { return period === "all"; }
+        if (period === "day") {
+          return bookingDate.toDateString() === now.toDateString();
+        } else if (period === "week") {
+          return (now.getTime() - bookingDate.getTime()) <= 7 * 24 * 60 * 60 * 1000;
+        } else if (period === "month") {
+          return (now.getTime() - bookingDate.getTime()) <= 30 * 24 * 60 * 60 * 1000;
+        }
+        return true;
+      });
+
+      // Aggregate by rep
+      const repMap: Record<string, { booked: number; shows: number; closes: number; noSales: number; cancels: number; excluded: number; revenue: number }> = {};
+      filtered.forEach((b: any) => {
+        const rep = b.assignedRep || b.assigned_rep;
+        if (!rep || rep === "") return;
+        if (!repMap[rep]) repMap[rep] = { booked: 0, shows: 0, closes: 0, noSales: 0, cancels: 0, excluded: 0, revenue: 0 };
+        repMap[rep].booked++;
+        if (b.showStatus === "show") repMap[rep].shows++;
+        if (b.closeStatus === "close") repMap[rep].closes++;
+        if (b.closeStatus === "no_sale") repMap[rep].noSales++;
+        if (b.showStatus === "no_show" || b.showStatus === "cancel") repMap[rep].cancels++;
+        if (b.showStatus === "tba" || b.showStatus === "reschedule") repMap[rep].excluded++;
+        repMap[rep].revenue += parseFloat(b.revenue) || 0;
+      });
+
+      const result = Object.entries(repMap).map(([rep, r]) => {
+        const showDenom = r.booked - r.excluded;
         return {
-        rep: r.assigned_rep,
-        booked: r.booked,
-        shows: r.shows,
-        closes: r.closes,
-        noSales: r.no_sales,
-        cancels: r.cancels,
-        revenue: parseFloat(r.revenue) || 0,
-        showRate: showDenom > 0 ? Math.round((r.shows / showDenom) * 100) : 0,
-        closeRate: r.shows > 0 ? Math.round((r.closes / r.shows) * 100) : 0,
-      };}));
+          rep,
+          booked: r.booked,
+          shows: r.shows,
+          closes: r.closes,
+          noSales: r.noSales,
+          cancels: r.cancels,
+          revenue: r.revenue,
+          showRate: showDenom > 0 ? Math.round((r.shows / showDenom) * 100) : 0,
+          closeRate: r.shows > 0 ? Math.round((r.closes / r.shows) * 100) : 0,
+        };
+      }).sort((a, b) => b.booked - a.booked);
+
+      res.json(result);
     } catch(err: any) { res.status(500).json({ error: err.message }); }
   });
 
