@@ -1352,9 +1352,9 @@ function DashboardTab() {
 
   // Rep Performance (Change 9)
   const { data: repStats = [], isLoading: repLoading } = useQuery<RepStat[]>({
-    queryKey: ["/api/sales/rep-stats"],
+    queryKey: ["/api/sales/rep-stats", period],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/sales/rep-stats");
+      const res = await apiRequest("GET", `/api/sales/rep-stats?period=${period}`);
       return res.json();
     },
   });
