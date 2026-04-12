@@ -790,37 +790,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ─── REP STATS ───────────────────────────────────────────────────────────────
   app.get("/api/sales/rep-stats", async (req, res) => {
+    // Helper to compute rep stats from a flat bookings array
+    const computeRepStats = (allBookings: any[]) => {
+      const repMap: Record<string, { booked: number; shows: number; closes: number; no_sales: number; cancels: number; revenue: number; excluded: number }> = {};
+      for (const b of allBookings) {
+        const rep = b.assignedRep || b.assigned_rep;
+        if (!rep) continue;
+        if (!repMap[rep]) repMap[rep] = { booked: 0, shows: 0, closes: 0, no_sales: 0, cancels: 0, revenue: 0, excluded: 0 };
+        repMap[rep].booked++;
+        const showSt = b.showStatus || b.show_status;
+        const closeSt = b.closeStatus || b.close_status;
+        const rev = parseFloat(b.revenue) || 0;
+        if (showSt === "show") repMap[rep].shows++;
+        if (closeSt === "close") repMap[rep].closes++;
+        if (closeSt === "no_sale") repMap[rep].no_sales++;
+        if (showSt === "no_show" || showSt === "cancel") repMap[rep].cancels++;
+        if (showSt === "tba" || showSt === "reschedule") repMap[rep].excluded++;
+        repMap[rep].revenue += rev;
+      }
+      return Object.entries(repMap)
+        .map(([rep, r]) => {
+          const eligible = r.booked - r.excluded;
+          return {
+            rep,
+            booked: r.booked,
+            shows: r.shows,
+            closes: r.closes,
+            noSales: r.no_sales,
+            cancels: r.cancels,
+            revenue: r.revenue,
+            showRate: eligible > 0 ? Math.round((r.shows / eligible) * 100) : 0,
+            closeRate: r.shows > 0 ? Math.round((r.closes / r.shows) * 100) : 0,
+          };
+        })
+        .sort((a, b) => b.booked - a.booked);
+    };
+
     try {
-      const Database = (await import("better-sqlite3")).default;
-      const path = (await import("path")).default;
-      const db = new Database(path.join(process.cwd(), "gradum.db"));
-      const rows = db.prepare(`
-        SELECT 
-          assigned_rep,
-          COUNT(*) as booked,
-          SUM(CASE WHEN show_status = 'show' THEN 1 ELSE 0 END) as shows,
-          SUM(CASE WHEN close_status = 'close' THEN 1 ELSE 0 END) as closes,
-          SUM(CASE WHEN close_status = 'no_sale' THEN 1 ELSE 0 END) as no_sales,
-          SUM(CASE WHEN show_status = 'no_show' OR show_status = 'cancel' THEN 1 ELSE 0 END) as cancels,
-          SUM(CASE WHEN revenue IS NOT NULL THEN revenue ELSE 0 END) as revenue
-        FROM bookings
-        WHERE assigned_rep IS NOT NULL AND assigned_rep != ''
-        GROUP BY assigned_rep
-        ORDER BY booked DESC
-      `).all() as any[];
-      db.close();
-      res.json(rows.map(r => ({
-        rep: r.assigned_rep,
-        booked: r.booked,
-        shows: r.shows,
-        closes: r.closes,
-        noSales: r.no_sales,
-        cancels: r.cancels,
-        revenue: parseFloat(r.revenue) || 0,
-        showRate: r.booked > 0 ? Math.round((r.shows / r.booked) * 100) : 0,
-        closeRate: r.shows > 0 ? Math.round((r.closes / r.shows) * 100) : 0,
-      })));
-    } catch(err: any) { res.status(500).json({ error: err.message }); }
+      // Primary: Supabase
+      const allBookings = await sbBookings.getAll();
+      res.json(computeRepStats(allBookings));
+    } catch {
+      // Fallback: SQLite
+      try {
+        const Database = (await import("better-sqlite3")).default;
+        const path = (await import("path")).default;
+        const db = new Database(path.join(process.cwd(), "gradum.db"));
+        const rows = db.prepare(`
+          SELECT
+            assigned_rep,
+            COUNT(*) as booked,
+            SUM(CASE WHEN show_status = 'show' THEN 1 ELSE 0 END) as shows,
+            SUM(CASE WHEN close_status = 'close' THEN 1 ELSE 0 END) as closes,
+            SUM(CASE WHEN close_status = 'no_sale' THEN 1 ELSE 0 END) as no_sales,
+            SUM(CASE WHEN show_status = 'no_show' OR show_status = 'cancel' THEN 1 ELSE 0 END) as cancels,
+            SUM(CASE WHEN revenue IS NOT NULL THEN revenue ELSE 0 END) as revenue,
+            SUM(CASE WHEN show_status IN ('tba', 'reschedule') THEN 1 ELSE 0 END) as excluded
+          FROM bookings
+          WHERE assigned_rep IS NOT NULL AND assigned_rep != ''
+          GROUP BY assigned_rep
+          ORDER BY booked DESC
+        `).all() as any[];
+        db.close();
+        res.json(rows.map(r => {
+          const eligible = r.booked - (r.excluded || 0);
+          return {
+            rep: r.assigned_rep,
+            booked: r.booked,
+            shows: r.shows,
+            closes: r.closes,
+            noSales: r.no_sales,
+            cancels: r.cancels,
+            revenue: parseFloat(r.revenue) || 0,
+            showRate: eligible > 0 ? Math.round((r.shows / eligible) * 100) : 0,
+            closeRate: r.shows > 0 ? Math.round((r.closes / r.shows) * 100) : 0,
+          };
+        }));
+      } catch(err: any) { res.status(500).json({ error: err.message }); }
+    }
   });
 
   const httpServer = createServer(app);

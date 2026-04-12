@@ -54,6 +54,8 @@ interface SalesStats {
   reschedules: number;
   cancels: number;
   revenue: number;
+  tba: number;
+  pending: number;
   by_location: {
     location: string;
     booked: number;
@@ -813,6 +815,27 @@ function DaysAgoBadge({ dateStr }: { dateStr: string | undefined | null }) {
   );
 }
 
+function DaysAgoBadgeISO({ dateStr }: { dateStr: string | undefined | null }) {
+  if (!dateStr) return <span style={{ color: "hsl(210,10%,35%)", fontFamily: "var(--font-mono)", fontSize: 12 }}>—</span>;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return <span style={{ color: "hsl(210,10%,35%)", fontFamily: "var(--font-mono)", fontSize: 12 }}>—</span>;
+  const days = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+  if (days < 0) return <span style={{ color: "hsl(210,10%,35%)", fontFamily: "var(--font-mono)", fontSize: 12 }}>—</span>;
+  let color: string;
+  if (days === 0) color = "#2cba6e";
+  else if (days <= 30) color = "#f59e0b";
+  else color = "#f45c6b";
+  return (
+    <span style={{
+      display: "inline-block", padding: "2px 7px", borderRadius: 4,
+      fontSize: 11, fontWeight: 600, fontFamily: "var(--font-mono, monospace)",
+      color, background: `${color}18`,
+    }}>
+      {days === 0 ? "Today" : `${days}d ago`}
+    </span>
+  );
+}
+
 // ─── DATE SORT HELPER ─────────────────────────────────────────────────────────
 
 function parseBookingDate(d: string | undefined | null): number {
@@ -834,6 +857,7 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
   const [editBooking, setEditBooking] = useState<Booking | null>(null);
   const [locationFilter, setLocationFilter] = useState("");
   const [noSaleOnly, setNoSaleOnly] = useState(false);
+  const [rescheduleOnly, setRescheduleOnly] = useState(false);
   const [bookingSearch, setBookingSearch] = useState("");
 
   const { data: bookings = [], isLoading } = useQuery<Booking[]>({
@@ -855,7 +879,7 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
   // Search filter (Change 5)
   // No Sale filter + search filter combined (Change 5 & 6)
   const displayBookings = sortedBookings
-    .filter(b => noSaleOnly ? b.closeStatus === "no_sale" : true)
+    .filter(b => noSaleOnly ? b.closeStatus === "no_sale" : rescheduleOnly ? b.showStatus === "reschedule" : true)
     .filter(b => {
       if (!bookingSearch) return true;
       const s = bookingSearch.toLowerCase();
@@ -875,7 +899,8 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
   const monoTd: React.CSSProperties = { ...tdStyle, fontFamily: S.mono };
 
   // Column count for empty state
-  const colCount = isAdmin ? (noSaleOnly ? 12 : 11) : (noSaleOnly ? 9 : 8);
+  const showDaysAgoCol = noSaleOnly || rescheduleOnly;
+  const colCount = isAdmin ? (showDaysAgoCol ? 12 : 11) : (showDaysAgoCol ? 9 : 8);
 
   return (
     <div>
@@ -918,7 +943,7 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
         />
         {/* No Sale Follow-Up quick filter */}
         <button
-          onClick={() => setNoSaleOnly(!noSaleOnly)}
+          onClick={() => { setNoSaleOnly(!noSaleOnly); if (!noSaleOnly) setRescheduleOnly(false); }}
           style={{
             background: noSaleOnly ? "rgba(249,115,22,0.15)" : "transparent",
             color: noSaleOnly ? S.orange : S.textMuted,
@@ -932,9 +957,27 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
           {noSaleOnly ? "✕ " : ""}No Sale Follow-Ups
           {noSaleOnly && <span style={{ fontSize: 10 }}>({sortedBookings.filter(b => b.closeStatus === "no_sale").length})</span>}
         </button>
+        {/* Reschedule Follow-Up quick filter */}
+        <button
+          onClick={() => { setRescheduleOnly(!rescheduleOnly); if (!rescheduleOnly) setNoSaleOnly(false); }}
+          style={{
+            background: rescheduleOnly ? "rgba(234,179,8,0.15)" : "transparent",
+            color: rescheduleOnly ? "#eab308" : S.textMuted,
+            border: `1px solid ${rescheduleOnly ? "#eab308" : S.border}`,
+            borderRadius: 8, padding: "7px 14px", fontSize: 12,
+            cursor: "pointer", fontWeight: rescheduleOnly ? 700 : 400,
+            display: "flex", alignItems: "center", gap: 6,
+          }}
+          data-testid="button-reschedule-filter"
+        >
+          {rescheduleOnly ? "✕ " : ""}Reschedule Follow-Ups
+          {rescheduleOnly && <span style={{ fontSize: 10 }}>({sortedBookings.filter(b => b.showStatus === "reschedule").length})</span>}
+        </button>
         <div style={{ marginLeft: "auto", color: S.textMuted, fontSize: 12 }}>
           {noSaleOnly
             ? `${sortedBookings.filter(b => b.closeStatus === "no_sale").length} no-sale leads`
+            : rescheduleOnly
+            ? `${sortedBookings.filter(b => b.showStatus === "reschedule").length} reschedule leads`
             : `${bookings.length} bookings`}
         </div>
       </div>
@@ -952,8 +995,8 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
                 <th style={thStyle}>Rep</th>
                 <th style={thStyle}>Eval Date</th>
                 <th style={thStyle}>Time</th>
-                {/* Days Ago column — only when noSaleOnly (Change 6) */}
-                {noSaleOnly && <th style={thStyle}>Days Ago</th>}
+                {/* Days Ago column — when noSaleOnly or rescheduleOnly */}
+                {showDaysAgoCol && <th style={thStyle}>Days Ago</th>}
                 {isAdmin && <th style={thStyle}>Show</th>}
                 {isAdmin && <th style={thStyle}>Close</th>}
                 {isAdmin && <th style={{ ...thStyle, textAlign: "right" }}>Revenue</th>}
@@ -993,8 +1036,8 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
                   <td style={{ ...tdStyle, color: S.textMuted }}>{b.assignedRep || "—"}</td>
                   <td style={monoTd}>{b.evalDate}</td>
                   <td style={{ ...monoTd, color: S.textMuted }}>{b.evalTime}</td>
-                  {/* Days Ago cell — only when noSaleOnly (Change 6) */}
-                  {noSaleOnly && (
+                  {/* Days Ago cell — when noSaleOnly or rescheduleOnly */}
+                  {showDaysAgoCol && (
                     <td style={tdStyle}>
                       <DaysAgoBadge dateStr={b.evalDate} />
                     </td>
@@ -1144,6 +1187,7 @@ function FollowUpsTab() {
                 <th style={thStyle}>IG Username</th>
                 <th style={thStyle}>Rep</th>
                 <th style={thStyle}>Date Added</th>
+                <th style={thStyle}>Days Ago</th>
                 <th style={thStyle}>Status</th>
                 <th style={thStyle}>Notes</th>
                 <th style={{ ...thStyle, textAlign: "center" }}>Actions</th>
@@ -1152,12 +1196,12 @@ function FollowUpsTab() {
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={7} style={{ ...tdStyle, textAlign: "center", color: S.textMuted, padding: 32 }}>Loading...</td>
+                  <td colSpan={8} style={{ ...tdStyle, textAlign: "center", color: S.textMuted, padding: 32 }}>Loading...</td>
                 </tr>
               )}
               {!isLoading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ ...tdStyle, textAlign: "center", color: S.textMuted, padding: 32 }}>
+                  <td colSpan={8} style={{ ...tdStyle, textAlign: "center", color: S.textMuted, padding: 32 }}>
                     No follow-ups found. Click "+ Add Follow-Up" to add one.
                   </td>
                 </tr>
@@ -1173,6 +1217,7 @@ function FollowUpsTab() {
                   <td style={{ ...tdStyle, fontFamily: S.mono }}>@{f.igUsername.replace(/^@/, "")}</td>
                   <td style={{ ...tdStyle, color: S.textMuted }}>{f.assignedRep || "—"}</td>
                   <td style={{ ...tdStyle, fontFamily: S.mono, color: S.textMuted, fontSize: 12 }}>{f.date}</td>
+                  <td style={tdStyle}><DaysAgoBadgeISO dateStr={f.createdAt} /></td>
                   <td style={tdStyle}><StatusBadge status={f.status} /></td>
                   <td style={{ ...tdStyle, color: S.textMuted, maxWidth: 200 }}>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{f.notes || "—"}</span>
@@ -1358,7 +1403,7 @@ function DashboardTab() {
             <KpiCard
               label="Shows"
               value={stats.shows}
-              sub={`${pct(stats.shows, stats.total_booked)} of booked`}
+              sub={`${pct(stats.shows, stats.total_booked - (stats.reschedules || 0) - (stats.tba || 0))} of eligible`}
               color={S.green}
             />
             <KpiCard
