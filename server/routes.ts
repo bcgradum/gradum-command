@@ -622,13 +622,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       res.json(await sbFollowups.getAll(location));
     } catch {
-      const { db } = await import("./db");
-      const { sql: drizzleSql } = await import("drizzle-orm");
-      let query = "SELECT * FROM followups";
-      const params: any[] = [];
-      if (location) { query += " WHERE location = ?"; params.push(location); }
-      query += " ORDER BY created_at DESC";
-      const rows = db.all(drizzleSql.raw(query)) as any[];
+      const Database = (await import("better-sqlite3")).default;
+      const path = (await import("path")).default;
+      const sqliteDb = new Database(path.join(process.cwd(), "gradum.db"));
+      const stmt = location
+        ? sqliteDb.prepare("SELECT * FROM followups WHERE location = ? ORDER BY created_at DESC")
+        : sqliteDb.prepare("SELECT * FROM followups ORDER BY created_at DESC");
+      const rows = (location ? stmt.all(location) : stmt.all()) as any[];
+      sqliteDb.close();
       res.json(rows.map((f: any) => ({
         id: f.id, location: f.location, date: f.date,
         igUsername: f.ig_username, assignedRep: f.assigned_rep,
