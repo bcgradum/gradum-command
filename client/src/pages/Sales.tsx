@@ -270,7 +270,7 @@ function NewBookingModal({ onClose, onSuccess }: { onClose: () => void; onSucces
         evalDate: form.evalDate,
         evalTime: form.evalTime,
         notes: form.notes || null,
-        dateBooked: new Date().toISOString().split("T")[0],
+        dateBooked: form.evalDate,
       });
       onSuccess();
       onClose();
@@ -538,13 +538,13 @@ function EditBookingModal({
             </select>
           </div>
 
-          {/* Date Lead Booked */}
+          {/* Eval Date */}
           <div>
-            <label style={labelStyle()}>Date Lead Booked</label>
+            <label style={labelStyle()}>Eval Date</label>
             <input
               type="text"
-              value={form.dateBooked}
-              onChange={e => set("dateBooked", e.target.value)}
+              value={form.evalDate}
+              onChange={e => { set("evalDate", e.target.value); set("dateBooked", e.target.value); }}
               style={inputStyle()}
               placeholder="M/D/YYYY"
             />
@@ -842,6 +842,7 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
   const [locationFilter, setLocationFilter] = useState("");
   const [noSaleOnly, setNoSaleOnly] = useState(false);
   const [rescheduleOnly, setRescheduleOnly] = useState(false);
+  const [dateFilter, setDateFilter] = useState("");
   const [bookingSearch, setBookingSearch] = useState("");
 
   const { data: bookings = [], isLoading } = useQuery<Booking[]>({
@@ -864,6 +865,13 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
   // No Sale filter + search filter combined (Change 5 & 6)
   const displayBookings = sortedBookings
     .filter(b => noSaleOnly ? b.closeStatus === "no_sale" : rescheduleOnly ? b.showStatus === "reschedule" : true)
+    .filter(b => {
+      if (!dateFilter) return true;
+      // Compare date picker (YYYY-MM-DD) against evalDate (M/D/YYYY)
+      const [y, m, d] = dateFilter.split("-");
+      const target = `${parseInt(m)}/${parseInt(d)}/${y}`;
+      return b.evalDate === target || b.evalDate === dateFilter;
+    })
     .filter(b => {
       if (!bookingSearch) return true;
       const s = bookingSearch.toLowerCase();
@@ -907,6 +915,33 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
           <option value="">All Locations</option>
           {FACILITIES.map(f => <option key={f} value={f}>{f}</option>)}
         </select>
+        {/* Date filter */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={e => setDateFilter(e.target.value)}
+            style={{
+              ...inputStyle({ width: "auto" }),
+              minWidth: 140,
+              background: dateFilter ? "rgba(51,212,224,0.08)" : S.borderDim,
+              border: `1px solid ${dateFilter ? S.cyan : S.border}`,
+              color: dateFilter ? S.cyan : S.textPrimary,
+              borderRadius: 8,
+              padding: "6px 10px",
+              fontSize: 13,
+            }}
+          />
+          {dateFilter && (
+            <button
+              onClick={() => setDateFilter("")}
+              style={{
+                background: "none", border: "none", color: S.textMuted,
+                cursor: "pointer", fontSize: 14, padding: "2px 4px",
+              }}
+            >✕</button>
+          )}
+        </div>
         {/* Search input (Change 5) */}
         <input
           type="text"
@@ -956,11 +991,7 @@ function BookingsTab({ isAdmin }: { isAdmin: boolean }) {
           {rescheduleOnly && <span style={{ fontSize: 10 }}>({sortedBookings.filter(b => b.showStatus === "reschedule").length})</span>}
         </button>
         <div style={{ marginLeft: "auto", color: S.textMuted, fontSize: 12 }}>
-          {noSaleOnly
-            ? `${sortedBookings.filter(b => b.closeStatus === "no_sale").length} no-sale leads`
-            : rescheduleOnly
-            ? `${sortedBookings.filter(b => b.showStatus === "reschedule").length} reschedule leads`
-            : `${bookings.length} bookings`}
+          {displayBookings.length}{dateFilter ? ` for ${new Date(dateFilter + "T12:00:00").toLocaleDateString()}` : ""}{noSaleOnly ? " no-sale leads" : rescheduleOnly ? " reschedule leads" : " bookings"}
         </div>
       </div>
 
