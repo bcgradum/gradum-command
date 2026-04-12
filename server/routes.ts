@@ -616,6 +616,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/bookings/:id", async (req, res) => {
+    const id = Number(req.params.id);
+    try {
+      await sbBookings.delete(id);
+      res.json({ ok: true, id });
+    } catch {
+      const Database = (await import("better-sqlite3")).default;
+      const path = (await import("path")).default;
+      const sqliteDb = new Database(path.join(process.cwd(), "gradum.db"));
+      sqliteDb.prepare("DELETE FROM bookings WHERE id = ?").run(id);
+      sqliteDb.close();
+      res.json({ ok: true, id });
+    }
+  });
+
   // ─── FOLLOW-UPS ──────────────────────────────────────────────────────────────
   app.get("/api/followups", async (req, res) => {
     const location = req.query.location ? String(req.query.location) : undefined;

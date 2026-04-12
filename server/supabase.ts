@@ -102,6 +102,7 @@ function mapAthlete(a: any) {
     nearestFacilityId: a.nearest_facility_id,
     nearestIgAccount: a.nearest_ig_account,
     priorityScore: a.priority_score,
+    handleStatus: a.handle_status,
     createdAt: a.created_at,
     updatedAt: a.updated_at,
   };
@@ -212,6 +213,7 @@ export const sbBookings = {
   },
   insert: (data: any) => sb("/bookings", { method: "POST", body: JSON.stringify(data) }).then((r: any) => Array.isArray(r) ? mapBooking(r[0]) : mapBooking(r)),
   update: (id: number, data: any) => sb(`/bookings?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(data) }).then((r: any) => Array.isArray(r) ? mapBooking(r[0]) : mapBooking(r)),
+  delete: (id: number) => sb(`/bookings?id=eq.${id}`, { method: "DELETE" }),
 };
 
 // ─── FOLLOWUPS ────────────────────────────────────────────────────────────────

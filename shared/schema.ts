@@ -72,6 +72,7 @@ export const athletes = sqliteTable("athletes", {
   nearestFacilityId: integer("nearest_facility_id"),
   nearestIgAccount: text("nearest_ig_account"),
   priorityScore: integer("priority_score").default(0),
+  handleStatus: text("handle_status"), // confirmed | wrong
   createdAt: text("created_at").notNull().default(new Date().toISOString()),
   updatedAt: text("updated_at").notNull().default(new Date().toISOString()),
 });
