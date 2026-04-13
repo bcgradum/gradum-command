@@ -260,40 +260,28 @@ export const sbFollowups = {
 };
 
 export async function sbGetDashboardStats() {
-  console.log("[dashboard] sbGetDashboardStats called");
-  try {
-    const [totalAthletes, totalMatched, totalDone, athletes, activity] = await Promise.all([
-      sbCount("/athletes?select=id"),
-      sbCount("/athletes?ig_confidence=gte.60&select=id"),
-      sbCount("/athletes?handle_status=eq.confirmed&select=id"),
-      sbAll("/athletes?select=id,state"),
-      sbActivity.getRecent(undefined, 20),
-    ]);
-    console.log(`[dashboard] totalAthletes=${totalAthletes} totalMatched=${totalMatched} totalDone=${totalDone} athletes.length=${athletes.length}`);
+  const states = ["FL", "TX", "NC", "SC", "GA", "OK", "UT"];
+  const [totalAthletes, totalMatched, totalDone, activity, ...stateCounts] = await Promise.all([
+    sbCount("/athletes?select=id"),
+    sbCount("/athletes?ig_confidence=gte.60&select=id"),
+    sbCount("/athletes?handle_status=eq.confirmed&select=id"),
+    sbActivity.getRecent(undefined, 20),
+    ...states.map(s => sbCount(`/athletes?state=eq.${s}&select=id`)),
+  ]);
 
-  const byState: Record<string, number> = {};
-  for (const a of athletes) {
-    if (a.state) byState[a.state] = (byState[a.state] || 0) + 1;
-  }
-
-  const stateArr = Object.entries(byState)
-    .map(([state, count]) => ({ state, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
+  const byState = states
+    .map((state, i) => ({ state, count: stateCounts[i] }))
+    .filter(s => s.count > 0)
+    .sort((a, b) => b.count - a.count);
 
   return {
     totalAthletes,
     totalMatched,
     matchRate: totalAthletes > 0 ? Math.round((totalMatched / totalAthletes) * 100) : 0,
     totalDone,
-    byState: stateArr,
+    byState,
     recentActivity: activity,
   };
-  } catch (err: any) {
-    console.error(`[dashboard] ERROR in sbGetDashboardStats: ${err.message}`);
-    console.error(err.stack);
-    throw err;
-  }
 }
 
 export async function sbGetFacilityStats(facilityId: number) {
