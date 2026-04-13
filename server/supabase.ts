@@ -57,6 +57,26 @@ async function sb(path: string, options: RequestInit = {}): Promise<any> {
   return text ? JSON.parse(text) : null;
 }
 
+/** Count rows via HEAD + Prefer: count=exact (no row limit!) */
+async function sbCount(path: string): Promise<number> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    method: "HEAD",
+    headers: {
+      ...headers,
+      "Prefer": "count=exact",
+      "Range": "0-0",
+    },
+  });
+  const range = res.headers.get("content-range") || "*/0";
+  return Number(range.split("/")[1]) || 0;
+}
+
+/** Fetch ALL rows (bypasses default 1000 limit) */
+async function sbAll(path: string): Promise<any[]> {
+  const sep = path.includes("?") ? "&" : "?";
+  return sb(`${path}${sep}limit=150000`);
+}
+
 // Snake_case to camelCase mapper for facilities
 function mapFacility(f: any) {
   return {
@@ -132,26 +152,26 @@ export const sbFacilities = {
 // ─── ATHLETES ─────────────────────────────────────────────────────────────────
 export const sbAthletes = {
   getAll: (filters: Record<string, string> = {}) => {
-    let qs = "/athletes?select=*&order=priority_score.desc";
+    let qs = "/athletes?select=*&order=priority_score.desc&limit=150000";
     for (const [k, v] of Object.entries(filters)) qs += `&${k}=${v}`;
     return sb(qs).then((r: any[]) => r.map(mapAthlete));
   },
   getByFacility: (facilityId: number, filtersStr: string = "") => {
-    const qs = `/athletes?nearest_facility_id=eq.${facilityId}&select=*&order=priority_score.desc${filtersStr}`;
+    const qs = `/athletes?nearest_facility_id=eq.${facilityId}&select=*&order=priority_score.desc&limit=150000${filtersStr}`;
     return sb(qs).then((r: any[]) => r.map(mapAthlete));
   },
   insert: (data: any) => sb("/athletes", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: any) => sb(`/athletes?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   count: (facilityId?: number) => {
     const qs = facilityId ? `/athletes?nearest_facility_id=eq.${facilityId}&select=id` : "/athletes?select=id";
-    return sb(qs).then((r: any[]) => r.length);
+    return sbCount(qs);
   },
   countByStatus: (facilityId: number, status: string) =>
-    sb(`/athletes?nearest_facility_id=eq.${facilityId}&ig_status=eq.${status}&select=id`).then((r: any[]) => r.length),
+    sbCount(`/athletes?nearest_facility_id=eq.${facilityId}&ig_status=eq.${status}&select=id`),
   countByConfidence: (facilityId: number, min: number, max?: number) => {
     let qs = `/athletes?nearest_facility_id=eq.${facilityId}&ig_confidence=gte.${min}`;
     if (max !== undefined) qs += `&ig_confidence=lte.${max}`;
-    return sb(`${qs}&select=id`).then((r: any[]) => r.length);
+    return sbCount(`${qs}&select=id`);
   },
 };
 
@@ -229,10 +249,11 @@ export const sbFollowups = {
 };
 
 export async function sbGetDashboardStats() {
-  const [athletes, matched, done, activity] = await Promise.all([
-    sb("/athletes?select=id,state"),
-    sb("/athletes?ig_confidence=gte.60&select=id"),
-    sb("/athletes?handle_status=eq.confirmed&select=id"),
+  const [totalAthletes, totalMatched, totalDone, athletes, activity] = await Promise.all([
+    sbCount("/athletes?select=id"),
+    sbCount("/athletes?ig_confidence=gte.60&select=id"),
+    sbCount("/athletes?handle_status=eq.confirmed&select=id"),
+    sbAll("/athletes?select=id,state"),
     sbActivity.getRecent(undefined, 20),
   ]);
 
@@ -247,29 +268,27 @@ export async function sbGetDashboardStats() {
     .slice(0, 10);
 
   return {
-    totalAthletes: athletes.length,
-    totalMatched: matched.length,
-    matchRate: athletes.length > 0 ? Math.round((matched.length / athletes.length) * 100) : 0,
-    totalDone: done.length,
+    totalAthletes,
+    totalMatched,
+    matchRate: totalAthletes > 0 ? Math.round((totalMatched / totalAthletes) * 100) : 0,
+    totalDone,
     byState: stateArr,
     recentActivity: activity,
   };
 }
 
 export async function sbGetFacilityStats(facilityId: number) {
-  const [all, matched60, low5059, review, notFound, primary, secondary, extended] = await Promise.all([
-    sb(`/athletes?nearest_facility_id=eq.${facilityId}&select=id`),
-    sb(`/athletes?nearest_facility_id=eq.${facilityId}&ig_confidence=gte.60&select=id`),
-    sb(`/athletes?nearest_facility_id=eq.${facilityId}&ig_confidence=gte.50&ig_confidence=lte.59&select=id`),
-    sb(`/athletes?nearest_facility_id=eq.${facilityId}&ig_status=eq.review&select=id`),
-    sb(`/athletes?nearest_facility_id=eq.${facilityId}&ig_status=eq.not_found&select=id`),
-    sb(`/athletes?nearest_facility_id=eq.${facilityId}&select=id`), // simplified - no zone field in this schema
-    sb(`/athletes?nearest_facility_id=eq.${facilityId}&select=id`),
-    sb(`/athletes?nearest_facility_id=eq.${facilityId}&select=id`),
+  const fq = `/athletes?nearest_facility_id=eq.${facilityId}`;
+  const [total, matchedCount, lowCount, reviewCount, notFoundCount, allAthletes] = await Promise.all([
+    sbCount(`${fq}&select=id`),
+    sbCount(`${fq}&ig_confidence=gte.60&select=id`),
+    sbCount(`${fq}&ig_confidence=gte.50&ig_confidence=lte.59&select=id`),
+    sbCount(`${fq}&ig_status=eq.review&select=id`),
+    sbCount(`${fq}&ig_status=eq.not_found&select=id`),
+    sbAll(`${fq}&select=grad_year,school_name`),
   ]);
 
   // Grad year distribution
-  const allAthletes = await sb(`/athletes?nearest_facility_id=eq.${facilityId}&select=grad_year,school_name`);
   const yearMap: Record<number, number> = {};
   const schoolMap: Record<string, number> = {};
   for (const a of allAthletes) {
@@ -280,15 +299,12 @@ export async function sbGetFacilityStats(facilityId: number) {
   const byGradYear = Object.entries(yearMap).map(([year, count]) => ({ year: Number(year), count })).sort((a, b) => a.year - b.year);
   const bySchool = Object.entries(schoolMap).map(([school, count]) => ({ school, count })).sort((a, b) => b.count - a.count).slice(0, 10);
 
-  const total = all.length;
-  const matchedCount = matched60.length;
-
   return {
     totalAthletes: total,
     matched: matchedCount,
-    lowConfidence: low5059.length,
-    reviewQueue: review.length,
-    notFound: notFound.length,
+    lowConfidence: lowCount,
+    reviewQueue: reviewCount,
+    notFound: notFoundCount,
     primaryZone: Math.floor(total * 0.5),
     secondaryZone: Math.floor(total * 0.35),
     extendedZone: Math.floor(total * 0.15),
