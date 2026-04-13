@@ -60,11 +60,16 @@ async function sb(path: string, options: RequestInit = {}): Promise<any> {
 /** Count rows via GET + Prefer: count=exact (reads content-range header) */
 async function sbCount(path: string): Promise<number> {
   const sep = path.includes("?") ? "&" : "?";
-  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}${sep}limit=1`, {
+  const url = `${SUPABASE_URL}/rest/v1${path}${sep}limit=1`;
+  console.log(`[sbCount] fetching: ${url}`);
+  const res = await fetch(url, {
     headers: { ...headers, "Prefer": "count=exact", "Range": "0-0" },
   });
-  const range = res.headers.get("content-range") || "*/0";
-  return Number(range.split("/")[1]) || 0;
+  const range = res.headers.get("content-range");
+  console.log(`[sbCount] status=${res.status} content-range=${range}`);
+  const count = Number((range || "*/0").split("/")[1]) || 0;
+  console.log(`[sbCount] result=${count}`);
+  return count;
 }
 
 /** Fetch ALL rows via pagination (bypasses default 1000 limit) */
@@ -255,13 +260,16 @@ export const sbFollowups = {
 };
 
 export async function sbGetDashboardStats() {
-  const [totalAthletes, totalMatched, totalDone, athletes, activity] = await Promise.all([
-    sbCount("/athletes?select=id"),
-    sbCount("/athletes?ig_confidence=gte.60&select=id"),
-    sbCount("/athletes?handle_status=eq.confirmed&select=id"),
-    sbAll("/athletes?select=id,state"),
-    sbActivity.getRecent(undefined, 20),
-  ]);
+  console.log("[dashboard] sbGetDashboardStats called");
+  try {
+    const [totalAthletes, totalMatched, totalDone, athletes, activity] = await Promise.all([
+      sbCount("/athletes?select=id"),
+      sbCount("/athletes?ig_confidence=gte.60&select=id"),
+      sbCount("/athletes?handle_status=eq.confirmed&select=id"),
+      sbAll("/athletes?select=id,state"),
+      sbActivity.getRecent(undefined, 20),
+    ]);
+    console.log(`[dashboard] totalAthletes=${totalAthletes} totalMatched=${totalMatched} totalDone=${totalDone} athletes.length=${athletes.length}`);
 
   const byState: Record<string, number> = {};
   for (const a of athletes) {
@@ -281,6 +289,11 @@ export async function sbGetDashboardStats() {
     byState: stateArr,
     recentActivity: activity,
   };
+  } catch (err: any) {
+    console.error(`[dashboard] ERROR in sbGetDashboardStats: ${err.message}`);
+    console.error(err.stack);
+    throw err;
+  }
 }
 
 export async function sbGetFacilityStats(facilityId: number) {
