@@ -57,17 +57,30 @@ async function sb(path: string, options: RequestInit = {}): Promise<any> {
   return text ? JSON.parse(text) : null;
 }
 
-/** Count rows by fetching IDs with high limit (bypasses default 1000 cap) */
+/** Count rows via GET + Prefer: count=exact (reads content-range header) */
 async function sbCount(path: string): Promise<number> {
   const sep = path.includes("?") ? "&" : "?";
-  const rows = await sb(`${path}${sep}limit=150000`);
-  return Array.isArray(rows) ? rows.length : 0;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}${sep}limit=1`, {
+    headers: { ...headers, "Prefer": "count=exact", "Range": "0-0" },
+  });
+  const range = res.headers.get("content-range") || "*/0";
+  return Number(range.split("/")[1]) || 0;
 }
 
-/** Fetch ALL rows (bypasses default 1000 limit) */
+/** Fetch ALL rows via pagination (bypasses default 1000 limit) */
 async function sbAll(path: string): Promise<any[]> {
-  const sep = path.includes("?") ? "&" : "?";
-  return sb(`${path}${sep}limit=150000`);
+  const all: any[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+  while (true) {
+    const sep = path.includes("?") ? "&" : "?";
+    const page = await sb(`${path}${sep}limit=${pageSize}&offset=${offset}`);
+    if (!Array.isArray(page) || page.length === 0) break;
+    all.push(...page);
+    if (page.length < pageSize) break;
+    offset += pageSize;
+  }
+  return all;
 }
 
 // Snake_case to camelCase mapper for facilities
@@ -145,13 +158,13 @@ export const sbFacilities = {
 // ─── ATHLETES ─────────────────────────────────────────────────────────────────
 export const sbAthletes = {
   getAll: (filters: Record<string, string> = {}) => {
-    let qs = "/athletes?select=*&order=priority_score.desc&limit=150000";
+    let qs = "/athletes?select=*&order=priority_score.desc";
     for (const [k, v] of Object.entries(filters)) qs += `&${k}=${v}`;
-    return sb(qs).then((r: any[]) => r.map(mapAthlete));
+    return sbAll(qs).then((r: any[]) => r.map(mapAthlete));
   },
   getByFacility: (facilityId: number, filtersStr: string = "") => {
-    const qs = `/athletes?nearest_facility_id=eq.${facilityId}&select=*&order=priority_score.desc&limit=150000${filtersStr}`;
-    return sb(qs).then((r: any[]) => r.map(mapAthlete));
+    const qs = `/athletes?nearest_facility_id=eq.${facilityId}&select=*&order=priority_score.desc${filtersStr}`;
+    return sbAll(qs).then((r: any[]) => r.map(mapAthlete));
   },
   insert: (data: any) => sb("/athletes", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: any) => sb(`/athletes?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(data) }),
