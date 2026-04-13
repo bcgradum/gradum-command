@@ -57,18 +57,11 @@ async function sb(path: string, options: RequestInit = {}): Promise<any> {
   return text ? JSON.parse(text) : null;
 }
 
-/** Count rows via HEAD + Prefer: count=exact (no row limit!) */
+/** Count rows by fetching IDs with high limit (bypasses default 1000 cap) */
 async function sbCount(path: string): Promise<number> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
-    method: "HEAD",
-    headers: {
-      ...headers,
-      "Prefer": "count=exact",
-      "Range": "0-0",
-    },
-  });
-  const range = res.headers.get("content-range") || "*/0";
-  return Number(range.split("/")[1]) || 0;
+  const sep = path.includes("?") ? "&" : "?";
+  const rows = await sb(`${path}${sep}limit=150000`);
+  return Array.isArray(rows) ? rows.length : 0;
 }
 
 /** Fetch ALL rows (bypasses default 1000 limit) */
